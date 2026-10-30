@@ -7,8 +7,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from dvsense_driver.camera_manager import DvsCameraManager
-from dvsense_driver.hal.camera_tool import ToolType
 
 
 MAX_RENDER_EVENTS = 500_000
@@ -153,6 +151,10 @@ def main() -> None:
     ap.add_argument("--max-auto-pairs", type=int, default=30,
                     help="自动采集的标定帧对总数上限")
     args = ap.parse_args()
+
+    # Hardware SDK is only required when opening actual cameras.
+    from dvsense_driver.camera_manager import DvsCameraManager
+    from dvsense_driver.hal.camera_tool import ToolType
 
     manager = DvsCameraManager()
     manager.update_cameras()

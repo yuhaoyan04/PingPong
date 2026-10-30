@@ -54,6 +54,7 @@ class FakeCamera:
 
 
 def test_camera_configuration_returns_checked_hardware_readback():
+    pytest.importorskip("dvsense_driver", reason="vendor SDK absent on offline server")
     camera = FakeCamera()
     readback = module.configure_camera(
         camera, "MASTER", 2000, 10, False, 0, 0, False, 1)

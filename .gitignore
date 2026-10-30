@@ -39,3 +39,6 @@ docs/training/SERVER_TRAIN_PROMPT.md
 build/
 dist/
 .venv/
+.venv
+experiments/
+weights/

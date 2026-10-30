@@ -1,0 +1,20 @@
+{
+  "birth_confidence": 0.75,
+  "continuation_confidence": 0.25,
+  "confirmation_hits": 2,
+  "max_unobserved_frames": 3,
+  "max_visual_only_frames": 40,
+  "max_time_gap_us": 5000,
+  "nominal_step_us": 500,
+  "edge_margin_pixels": 12.0,
+  "minimum_box_inside_fraction": 0.65,
+  "duplicate_nms_iou": 0.5,
+  "minimum_event_pixels": 8,
+  "max_center_distance": 18.0,
+  "low_score_appearance_min": 0.35,
+  "flow_appearance_min": 0.35,
+  "flow_forward_backward_max": 1.0,
+  "flow_min_points": 3,
+  "minimum_consecutive_frames": 3,
+  "consecutive_max_gap_us": 750
+}

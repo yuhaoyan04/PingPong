@@ -9,8 +9,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from dvsense_driver.camera_manager import DvsCameraManager
-from dvsense_driver.hal.camera_tool import ToolType
 
 from pingpong_event_pipeline.acquisition import (
     configure_boolean_parameter, configure_event_rate_control,
@@ -93,6 +91,10 @@ def main():
     ap.add_argument("--safe-margin-px", type=int, default=0,
                     help="Draw a full-ball safety rectangle this many pixels from every sensor edge")
     args = ap.parse_args()
+
+    # Hardware SDK is only required when opening actual cameras.
+    from dvsense_driver.camera_manager import DvsCameraManager
+    from dvsense_driver.hal.camera_tool import ToolType
     if not 0.0 <= args.preview_decay < 1.0:
         raise SystemExit("--preview-decay must be in [0, 1)")
     if args.batch_us <= 0 or args.duration <= 0:

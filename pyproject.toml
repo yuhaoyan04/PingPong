@@ -19,9 +19,11 @@ dependencies = [
 [project.optional-dependencies]
 gui = ["PyQt5>=5.15"]
 test = ["pytest>=7", "PyQt5>=5.15"]
+yolo = ["ultralytics==8.4.192", "matplotlib>=3.9,<4", "torch==2.6.0", "torchvision==0.21.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [project.scripts]
 pingpong-offline = "pingpong_event_pipeline.cli:main"
+pingpong = "pingpong_event_pipeline.workflow:main"

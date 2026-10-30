@@ -3,6 +3,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 from pingpong_event_pipeline.events import EVENT_DTYPE
 from pingpong_event_pipeline.models import Track2D
@@ -42,6 +43,7 @@ def _events(points, timestamp):
     return result
 
 
+@pytest.mark.skipif(not CALIBRATION.is_file(), reason="real stereo calibration is an external local asset")
 def test_events_to_stereo_markers_to_streaming_rpm_with_real_calibration(tmp_path):
     calibration = StereoCalibration(CALIBRATION)
     rng = np.random.default_rng(1201)

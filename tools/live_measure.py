@@ -14,8 +14,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from dvsense_driver.camera_manager import DvsCameraManager
-from dvsense_driver.hal.camera_tool import ToolType
 
 from pingpong_event_pipeline.config import load_config
 from pingpong_event_pipeline.acquisition import (
@@ -42,6 +40,7 @@ def configure_camera(camera, mode: str, batch_us: int, event_rate: int,
                      event_rate_control: bool = False,
                      bias_diff_on: int = 0, bias_diff_off: int = 0,
                      trail_filter: bool = False, trail_threshold_ms: int = 1) -> dict:
+    from dvsense_driver.hal.camera_tool import ToolType
     sync_type = getattr(ToolType, "SYNC", getattr(ToolType, "TOOL_SYNC", ToolType(2)))
     sync = camera.get_tool(sync_type)
     if not sync.set_param("mode", mode):
@@ -209,6 +208,10 @@ def main() -> None:
     ap.add_argument("--spin-template", help="validated physical_ball_template.npz")
     ap.add_argument("--spin-template-report", help="accepted physical_ball_template.json")
     args = ap.parse_args()
+
+    # Hardware SDK is only required when opening actual cameras.
+    from dvsense_driver.camera_manager import DvsCameraManager
+    from dvsense_driver.hal.camera_tool import ToolType
     if bool(args.spin_template) != bool(args.spin_template_report):
         ap.error("--spin-template and --spin-template-report must be provided together")
     if args.spin_template and (args.trail_filter or args.event_rate_control):

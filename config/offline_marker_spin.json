@@ -1,0 +1,15 @@
+{
+  "window_us": 20000,
+  "step_us": 10000,
+  "max_gap_us": 750,
+  "maximum_pair_us": 2000,
+  "minimum_pairs": 8,
+  "minimum_observations": 6,
+  "minimum_duration_us": 2000,
+  "angular_threshold_rad": 0.035,
+  "minimum_inlier_fraction": 0.7,
+  "maximum_condition": 15,
+  "maximum_rms_px": 3,
+  "maximum_rpm": 12000,
+  "hypotheses": 512
+}
