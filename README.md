@@ -16,6 +16,8 @@ python -m pip install -e '.[test]'
 
 Linux/macOS 可使用 `source .venv/bin/activate`。`test` 包含测试与 PyQt 标注界面依赖，仅需要界面可安装 `.[gui]`。相机采集与 RAW 重放还需要另行安装相应系统和相机型号的 [动微官方 SDK](https://sdk.dvsense.com/zh/html/install_zh.html)，仓库不分发它；确认 `dvsense_driver` 可被 Python 导入。SDK 版本、相机、系统以及 GUI 功能需在目标机器上验证。
 
+相机 SDK 1.3.0 安装、验证及官方资料入口见 [相机 SDK 说明](docs/hardware/CAMERA_SDK.md)；仓库内也包含保留原 MIT 许可证的官方 Python 示例快照。
+
 Windows 启动脚本优先使用环境变量 `PINGPONG_PYTHON` 指定的解释器，否则尝试当前用户的 Anaconda，再回退 PATH 中的 `python`。配置和部分硬件脚本保留原实验使用的相机序列号与主从角色；实际使用前必须核对并修改，角色交换脚本不可直接套用于其他硬件。
 
 ## 快速入口
@@ -42,6 +44,7 @@ config/                       配置
 data/                         本地数据和产物（不提交）
 docs/training/                服务器训练、推理提示词
 docs/hardware/                硬件接线说明（不分发官方手册）
+third_party/                  带许可证的官方 Python 示例快照
 ```
 
 旧研究脚本仍可能引用本地数据、SDK 或旧目录，运行前请检查参数；工具用途及维护状态见 `docs/TOOL_INDEX.md`。本机另有不纳入仓库的历史资料，不代表远程仓库包含这些文件。
