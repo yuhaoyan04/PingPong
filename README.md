@@ -2,7 +2,7 @@
 
 本项目当前重点是两路 DVSLume 事件相机的发球数据、球面标记人工标注与模型实验。双相机时钟同步、自动球心轨迹和真实转速精度均未完全验证；生成的候选和可视化不能直接当作测量真值。
 
-**仓库不包含数据或模型**：RAW、视频、图片、人工标注、标定结果、训练集、权重、官方 SDK 和实验产物都需自行准备。下文具体数据路径仅适用于已有本地实验工作区，克隆仓库后不会自动出现。
+**仓库不包含实验数据或模型**：RAW、视频、实验图片、人工标注、标定结果、训练集、权重和实验产物都需自行准备。仓库包含 Windows 版相机 SDK 安装包、官方示例及相机手册；下文具体数据路径仅适用于已有本地实验工作区，克隆仓库后不会自动出现。
 
 ## 安装
 
@@ -14,7 +14,7 @@ python -m venv .venv
 python -m pip install -e '.[test]'
 ```
 
-Linux/macOS 可使用 `source .venv/bin/activate`。`test` 包含测试与 PyQt 标注界面依赖，仅需要界面可安装 `.[gui]`。相机采集与 RAW 重放还需要另行安装相应系统和相机型号的 [动微官方 SDK](https://sdk.dvsense.com/zh/html/install_zh.html)，仓库不分发它；确认 `dvsense_driver` 可被 Python 导入。SDK 版本、相机、系统以及 GUI 功能需在目标机器上验证。
+Linux/macOS 可使用 `source .venv/bin/activate`。`test` 包含测试与 PyQt 标注界面依赖，仅需要界面可安装 `.[gui]`。相机采集与 RAW 重放还需安装相应系统和相机型号的 [动微官方 SDK](https://sdk.dvsense.com/zh/html/install_zh.html)；确认 `dvsense_driver` 可被 Python 导入。SDK 版本、相机、系统以及 GUI 功能需在目标机器上验证。
 
 相机 SDK 1.3.0 安装、验证及官方资料入口见 [相机 SDK 说明](docs/hardware/CAMERA_SDK.md)；仓库内也包含保留原 MIT 许可证的官方 Python 示例快照。
 
@@ -43,8 +43,8 @@ tests/                        单元与工作流测试
 config/                       配置
 data/                         本地数据和产物（不提交）
 docs/training/                服务器训练、推理提示词
-docs/hardware/                硬件接线说明（不分发官方手册）
-third_party/                  带许可证的官方 Python 示例快照
+docs/hardware/                硬件接线说明及相机手册 PDF
+third_party/                  Windows SDK 安装包及官方 Python 示例快照
 ```
 
 旧研究脚本仍可能引用本地数据、SDK 或旧目录，运行前请检查参数；工具用途及维护状态见 `docs/TOOL_INDEX.md`。本机另有不纳入仓库的历史资料，不代表远程仓库包含这些文件。
