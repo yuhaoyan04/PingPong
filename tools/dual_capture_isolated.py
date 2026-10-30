@@ -141,8 +141,8 @@ def camera_worker(role, serial, batch_us, gate, started, commands, messages, pre
 def main():
     mp.freeze_support()
     parser = argparse.ArgumentParser()
-    parser.add_argument('--master', default='DSP01F1FFF3E')
-    parser.add_argument('--slave', default='DSP01F1FFF59')
+    parser.add_argument('--master', default='DSP01F1FFF59')
+    parser.add_argument('--slave', default='DSP01F1FFF3E')
     parser.add_argument('--batch-us', type=int, default=1000)
     parser.add_argument('--smoke-seconds', type=float, default=0,
                         help='automatically record a short test after both previews appear')

@@ -17,6 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+camera = ["dvsense-driver==1.3.0"]
 gui = ["PyQt5>=5.15"]
 test = ["pytest>=7", "PyQt5>=5.15"]
 yolo = ["ultralytics==8.4.192", "matplotlib>=3.9,<4", "torch==2.6.0", "torchvision==0.21.0"]

@@ -17,6 +17,8 @@ DATASET = Path(os.environ.get("PINGPONG_DATASET", ROOT / "data/server_marker_two
 EXPERIMENT = Path(os.environ.get("PINGPONG_EXPERIMENT", ROOT / "experiments/two_camera_v1")).resolve()
 TRACKS = ROOT / "experiments/tracking_min3_v1/filtered/rotation_tracks_all.csv"
 STAGES = {
+    "sdk-check": "tools/check_camera_sdk.py",
+    "sdk-audit": "tools/audit_camera_runtime.py",
     "capture": "tools/dual_capture_isolated.py",
     "camera-tune": "tools/dual_camera_tuner.py",
     "calibration-capture": "tools/manual_calibration_capture.py",
@@ -65,10 +67,17 @@ def doctor():
         path = EXPERIMENT / camera / "train/weights/last.pt"
         models[camera] = {"path": str(path), "exists": path.is_file(),
                           "sha256": sha256(path) if path.is_file() else None}
-    sdk = importlib.util.find_spec("dvsense_driver") is not None
+    sdk_error = None
+    try:
+        importlib.import_module("dvsense_driver.raw_file_reader")
+        importlib.import_module("dvsense_driver.camera_manager")
+        sdk = True
+    except Exception as error:
+        sdk, sdk_error = False, str(error)
     calibration = list((ROOT / "calibration").glob("*.npz")) + list((ROOT / "data/calibration").glob("*.npz"))
     return {"project_root": str(ROOT), "python": sys.executable, "versions": versions,
             "sdk_importable": sdk, "camera_connection_verified": False,
+            "sdk_import_error": sdk_error,
             "ffmpeg": shutil.which("ffmpeg"), "dataset_present": DATASET.is_dir(),
             "consecutive_tracks_present": TRACKS.is_file(), "models": models,
             "calibration_files": [str(p) for p in calibration],
@@ -107,13 +116,27 @@ def main(argv=None):
     estimate.add_argument("--config", type=Path, default=ROOT / "config/offline_marker_spin.json")
     estimate.add_argument("--output", type=Path, required=True)
     estimate.add_argument("--no-review", action="store_true")
-    offline = sub.add_parser("offline", help="现有模型推理 -> 三帧筛选 -> 转速 -> 审核报告")
+    motion = sub.add_parser("motion", help="生成球心/标记轨迹、球速、转速的统一可视化")
+    motion.add_argument("--tracking", type=Path, default=ROOT / "output/latest/tracking")
+    motion.add_argument("--spin-report", type=Path, default=ROOT / "output/latest/spin/spin_report.json")
+    motion.add_argument("--dataset", type=Path, default=DATASET)
+    motion.add_argument("--output", type=Path, required=True)
+    offline = sub.add_parser("offline", aliases=["pipeline"], help="现有模型推理 -> 三帧筛选 -> 转速/球速/轨迹可视化")
     offline.add_argument("--camera", choices=["F3E", "F59", "all"], default="all")
     offline.add_argument("--device", default="0")
     offline.add_argument("--replay-cache", action="store_true", help="重放已有检测缓存；不作为新模型推理")
     offline.add_argument("--source", type=Path, help="自定义数据包内的组目录，需选单相机")
     offline.add_argument("--output", type=Path, default=ROOT / "output" / ("offline_" + datetime.now().strftime("%Y%m%d_%H%M%S")))
+    for command in (motion, offline):
+        command.add_argument("--ball-diameter-m", type=float, default=.040)
+        command.add_argument("--calibration", type=Path, help="真实标定 NPZ；T 单位为米")
+        command.add_argument("--master-camera", choices=["F3E", "F59"], help="标定 K1 对应的相机，必须显式指定")
+        command.add_argument("--slave-offset-us", type=int, default=0, help="加入从机时间戳的校正量")
+        command.add_argument("--no-videos", action="store_true")
+        command.add_argument("--runtime-report", type=Path, default=ROOT / "output/sdk_validation_v2/report.json")
     args = parser.parse_args(argv)
+    if args.command in {"motion", "offline", "pipeline"} and args.calibration and not args.master_camera:
+        parser.error("--calibration requires explicit --master-camera")
     if args.command == "doctor":
         report = doctor()
         rendered = json.dumps(report, ensure_ascii=False, indent=2)
@@ -125,7 +148,13 @@ def main(argv=None):
         run_stage(args.stage, args.arguments)
     elif args.command == "spin":
         spin(args.tracks, args.dataset, args.output, args.config, not args.no_review)
-    elif args.command == "offline":
+    elif args.command == "motion":
+        from .motion_review import build_report
+        report = build_report(args.dataset, args.tracking, args.spin_report, args.output,
+                              args.ball_diameter_m, args.calibration, args.master_camera,
+                              args.slave_offset_us, not args.no_videos, args.runtime_report)
+        print(json.dumps({"output": str(args.output.resolve()), "frames": report["ball_samples"], "review": "review.html"}))
+    elif args.command in {"offline", "pipeline"}:
         args.output = args.output.resolve()
         args.output.mkdir(parents=True, exist_ok=False)
         arguments = ["--camera", args.camera, "--device", args.device, "--output", str(args.output / "tracking")]
@@ -136,10 +165,15 @@ def main(argv=None):
         run_stage("infer", arguments)
         spin(args.output / "tracking/rotation_tracks_all.csv", DATASET, args.output / "spin",
              ROOT / "config/offline_marker_spin.json")
+        from .motion_review import build_report
+        build_report(DATASET, args.output / "tracking", args.output / "spin/spin_report.json", args.output / "motion",
+                     args.ball_diameter_m, args.calibration, args.master_camera, args.slave_offset_us,
+                     not args.no_videos, args.runtime_report)
         (args.output / "run.json").write_text(json.dumps({
             "camera": args.camera, "device": args.device, "replayed_cached_detections": args.replay_cache,
             "minimum_consecutive_frames": 3, "spin_report": "spin/spin_report.json",
-            "review": "spin/review.html", "physical_measurement_validated": False}, indent=2), encoding="utf-8")
+            "review": "motion/review.html", "spin_review": "spin/review.html",
+            "motion_report": "motion/motion_report.json", "physical_measurement_validated": False}, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

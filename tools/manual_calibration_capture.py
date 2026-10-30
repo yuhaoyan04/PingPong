@@ -157,8 +157,8 @@ def save_pair(directory, index, frames, metadata):
 def main():
     mp.freeze_support()
     p = argparse.ArgumentParser()
-    p.add_argument('--master', default='DSP01F1FFF3E')
-    p.add_argument('--slave', default='DSP01F1FFF59')
+    p.add_argument('--master', default='DSP01F1FFF59')
+    p.add_argument('--slave', default='DSP01F1FFF3E')
     p.add_argument('--batch-us', type=int, default=1000)
     p.add_argument('--window-ms', type=int, default=200)
     p.add_argument('--output-dir', type=Path, default=Path('calibration/manual_sessions'))

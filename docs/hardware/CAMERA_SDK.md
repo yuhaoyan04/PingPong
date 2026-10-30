@@ -1,5 +1,25 @@
 # 动微相机 SDK 与资料
 
+## 本次 Linux 集成验证（2026-10-31）
+
+已合入 GitHub `3f08a83`。本服务器是 Ubuntu 20.04 / CPython 3.12，仓库的 Windows cp39 wheel 不适用；已从官方 PyPI 安装 `dvsense-driver==1.3.0` 的 `cp312-manylinux_2_28_x86_64` wheel。安装文件及 SHA-256 记录在本地 `data/sdk/`，不覆盖 NumPy、PyTorch 或 CUDA。
+
+```bash
+bash scripts/install_camera_sdk.sh
+bash scripts/pingpong.sh run sdk-check
+bash scripts/pingpong.sh run sdk-audit --help
+```
+
+本次实际验证结果见 `output/sdk_validation_v2/report.json`：Python SDK 和三个核心模块导入成功；一份同步测试 RAW 的 10 ms 小窗口成功解码，得到 1,783 个坐标合法、时间单调的事件。仅验证了这个解码窗口，不代表整份文件时钟或训练采集时间已通过验证。SDK 枚举未发现相机，没有打开设备或开始采集。
+
+厂商当前的 [原生 SDK 系统支持说明](https://sdk.dvsense.com/zh/html/install_zh.html) 列出 Ubuntu 22.04/24.04，1.3.0 不再正式支持 20.04。这里记录的是本机 Python wheel 的实测导入和小窗口重放结果，不能推广成实机驱动兼容保证；无需为本次离线分析改动系统 apt、驱动或 CUDA。
+
+本地上传的近期同步记录已复制到 `data/camera_evidence/`；其中的时钟测试 RAW 不是乒乓球训练数据，不进入训练集。自定义验证工具归入 `tools/camera_diagnostics/`，官方示例仍单独保存在 `third_party/dvsense_driver_python_sample/`。历史 PASS 记录不能直接证明另一段采集的时钟和双目视觉时间一致。
+
+采集与手动标定入口的默认角色已统一为当前配置的 F59=MASTER、F3E=SLAVE，从机先启动；实际接线变动时仍需显式设置并重新验收。这不会改变旧录制或旧标定文件中相机的顺序。
+
+真实的发球 RAW 和真实空间标定文件目前仍未提供。现有样本可以进行 YOLO、追踪、像素运动与转速候选分析；有标定文件之后，统一入口可计算基于三角化的三维速度候选。
+
 本项目此前实际使用 `dvsense-driver 1.3.0`、Windows x64、CPython 3.9 的 Python 驱动。官方包还有其他 Python 和平台的构建；使用前核对平台、Python 版本、相机型号和 SDK 兼容性。本仓库不包含本地虚拟环境，也没有把相机数据、序列号对应的采集文件或标定结果打包进来。
 
 ## 安装与检查
