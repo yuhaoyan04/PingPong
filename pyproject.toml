@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pingpong-event-pipeline"
+version = "0.1.0"
+description = "Experimental DVSLume stereo table-tennis tracking and spin pipeline"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy>=1.24,<2.1",
+  "numba>=0.60,<0.61",
+  "scipy>=1.9",
+  "opencv-python>=4.10",
+  "PyYAML>=6.0",
+  "Pillow>=9.0",
+]
+
+[project.optional-dependencies]
+gui = ["PyQt5>=5.15"]
+test = ["pytest>=7", "PyQt5>=5.15"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+pingpong-offline = "pingpong_event_pipeline.cli:main"

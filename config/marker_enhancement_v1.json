@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "description": "Camera-specific candidate marker enhancement; review against original events before labeling.",
+  "cameras": {
+    "F3E": {"method": "neighbor", "radius": 3, "min_neighbors": 2},
+    "F59": {"method": "multiscale_contrast", "threshold": 0.035, "small_sigma": 3.0, "large_sigma": 12.0}
+  }
+}

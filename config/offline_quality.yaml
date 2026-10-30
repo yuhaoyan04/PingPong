@@ -1,0 +1,75 @@
+# CPU/offline correctness profile: 200 Hz state updates over a 5 ms event window.
+cameras:
+  master_serial: DSP01F1FFF59
+  slave_serial: DSP01F1FFF3E
+  width: 1280
+  height: 720
+  timestamp_correction_us: {master: 0, slave: 0}
+events:
+  window_us: 5000
+  step_us: 5000
+  sae_tau_us: 2500
+detection:
+  type: hough_circle
+  interval_us: 5000
+  threshold_percentile: 99.4
+  minimum_threshold: 18
+  min_radius_px: 12
+  max_radius_px: 120
+  min_area_px: 30
+  max_area_px: 50000
+  max_aspect_ratio: 4.0
+  roi_half_size_px: 160
+  max_missed_windows: 10
+  hough_scale: 0.5
+  hough_min_distance_px: 20
+  hough_canny_threshold: 60
+  hough_vote_threshold: 15
+  maximum_candidates: 20
+  minimum_ring_score: 0.08
+  predictive_refinement: true
+  predictive_min_ring_score: 0.045
+  predictive_fallback_hough: false
+stereo:
+  calibration_file: calibration/stereo_calibration.npz
+  max_epipolar_error_px: 4.0
+  max_radius_ratio: 2.0
+  ball_radius_m: 0.020
+  minimum_depth_m: 0.3
+  maximum_depth_m: 3.0
+  max_radius_scale_error: 0.8
+  maximum_prediction_error_px: 80.0
+  maximum_ball_speed_mps: 30.0
+  position_jump_allowance_m: 0.02
+  continuity_reset_s: 0.05
+  max_reprojection_error_px: 3.0
+trajectory:
+  gravity_vector_camera_mps2: [0.0, 0.0, 0.0]
+  gravity_mps2: 9.80665
+  drag_coefficient: 0.0
+  process_noise: 0.08
+  measurement_noise_m: 0.01
+spin:
+  enabled: true
+  window_us: 5000
+  sae_tau_us: 1800
+  normalized_patch_size: 128
+  minimum_dot_features: 99
+  maximum_dots: 16
+  minimum_features: 4
+  maximum_features: 30
+  lk_window_px: 15
+  lk_pyramid_levels: 2
+  minimum_radius_px: 12
+  max_forward_backward_error_px: 1.5
+  max_lk_error: 30.0
+  minimum_quality: 0.10
+  minimum_fused_quality: 0.12
+  maximum_relative_disagreement: 0.5
+  max_rpm: 12000
+output:
+  preview_fps: 50
+  preview_scale: 0.5
+runtime:
+  opencv_threads: 1
+  parallel_cameras: false

@@ -1,0 +1,78 @@
+cameras:
+  master_serial: DSP01F1FFF59
+  slave_serial: DSP01F1FFF3E
+  width: 1280
+  height: 720
+  timestamp_correction_us: {master: 0, slave: 0}
+events: {window_us: 20000, step_us: 10000, sae_tau_us: 8000}
+detection:
+  type: hough_circle
+  interval_us: 10000
+  threshold_percentile: 99.0
+  minimum_threshold: 10
+  min_radius_px: 45
+  max_radius_px: 140
+  min_area_px: 30
+  max_area_px: 80000
+  max_aspect_ratio: 4.0
+  roi_half_size_px: 190
+  max_missed_windows: 20
+  hough_scale: 0.5
+  hough_min_distance_px: 50
+  hough_canny_threshold: 45
+  hough_vote_threshold: 12
+  maximum_candidates: 20
+  minimum_ring_score: 0.05
+  predictive_refinement: true
+  predictive_min_ring_score: 0.025
+  predictive_fallback_hough: true
+stereo:
+  calibration_file: calibration/stereo_calibration.npz
+  max_epipolar_error_px: 5.0
+  max_radius_ratio: 1.8
+  ball_radius_m: 0.020
+  minimum_depth_m: 0.3
+  maximum_depth_m: 1.5
+  max_radius_scale_error: 0.65
+  maximum_prediction_error_px: 100.0
+  maximum_ball_speed_mps: 3.0
+  position_jump_allowance_m: 0.04
+  continuity_reset_s: 0.15
+  max_reprojection_error_px: 3.5
+trajectory:
+  gravity_vector_camera_mps2: [0.0, 0.0, 0.0]
+  gravity_mps2: 9.80665
+  drag_coefficient: 0.0
+  process_noise: 0.05
+  measurement_noise_m: 0.005
+spin:
+  enabled: true
+  solver: rigid_rotation
+  rotation_inlier_threshold_rad: 0.06
+  window_us: 20000
+  sae_tau_us: 8000
+  normalized_patch_size: 128
+  dot_detector: blobs
+  minimum_dot_features: 3
+  maximum_dots: 14
+  dot_blob_threshold: 20
+  dot_mask_radius_fraction: 0.72
+  dot_blob_close_px: 3
+  dot_blob_min_area_px: 5
+  dot_blob_max_area_px: 350
+  dot_blob_max_aspect_ratio: 5.0
+  dot_max_motion_px: 22
+  dot_max_radius_ratio: 2.5
+  minimum_features: 6
+  maximum_features: 100
+  lk_window_px: 19
+  lk_pyramid_levels: 3
+  minimum_radius_px: 30
+  max_forward_backward_error_px: 1.5
+  max_lk_error: 35.0
+  minimum_quality: 0.08
+  minimum_fused_quality: 0.10
+  maximum_relative_disagreement: 0.6
+  max_rpm: 1200
+output: {preview_fps: 50, preview_scale: 0.5}
+runtime: {opencv_threads: 1, parallel_cameras: false}
