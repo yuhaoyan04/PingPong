@@ -2,7 +2,7 @@
 
 事件相机乒乓球项目：相机采集、球心追踪和运动补偿、分相机增强与去噪、人工标注、双相机分别训练 YOLO、标记簇追踪、离线球面旋转估计。
 
-本工作区整合了 `yuhaoyan04/PingPong` 的 `b14f706` 与现有 YOLO 工作区。**最新数据裁剪 → 两套已训练模型 → 连续三帧有效轨迹 → 转速候选与重投影审核，已经实际跑通。** 采集/RAW 重放仍需要官方 SDK 和相机；物理转速精度还需要时间、球体几何与独立转速真值验证。
+本工作区整合了 `yuhaoyan04/PingPong` 的 `3f08a83` 与现有 YOLO 工作区。**最新数据裁剪 → 两套已训练模型 → 连续三帧有效轨迹 → 转速候选与重投影审核，已经实际跑通。** 采集/RAW 重放仍需要官方 SDK 和相机；物理转速精度还需要时间、球体几何与独立转速真值验证。
 
 ## 审核与运行
 
@@ -49,4 +49,6 @@ Windows 或其他解释器可以运行 `python pingpong.py ...`，参数相同�
 PYTHONPATH=src:tools/yolo QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests tools/yolo/test_*.py
 ```
 
-`dvsense_driver` SDK 不随 Git 仓库分发，实际采集还需核对序列号和主从接线。历史 Windows 路径见 [上游原说明](docs/UPSTREAM_WORKFLOW.md) 与 [工具索引](docs/TOOL_INDEX.md)，不表示本服务器包含那些 RAW、SDK 或标定文件。
+仓库已包含 Windows SDK 安装包、官方示例和相机手册，详情见 [SDK 说明](docs/hardware/CAMERA_SDK.md)。Linux/Python 3.12 使用匹配的官方 wheel，不能安装 Windows cp39 包。实际采集仍需核对序列号和主从接线。历史 Windows 路径见 [上游原说明](docs/UPSTREAM_WORKFLOW.md) 与 [工具索引](docs/TOOL_INDEX.md)，不表示本服务器包含那些 RAW、SDK 或标定文件。
+
+本轮完整运动报告见 `output/` 中的新 pipeline 运行。源代码已合入上游最新 SDK 与文档更新，数据、权重和本地证据仍不提交远程。

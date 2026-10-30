@@ -27,6 +27,7 @@ output/
 *.jpg
 *.jpeg
 *.pdf
+!docs/hardware/DVSLume使用手册(1).pdf
 archive/
 codec_test/
 docs/assets/

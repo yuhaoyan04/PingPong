@@ -1,0 +1,2 @@
+# Optional official DVSense Python SDK; binaries are downloaded from PyPI.
+dvsense-driver==1.3.0
