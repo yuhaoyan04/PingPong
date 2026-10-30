@@ -19,6 +19,8 @@ TRACKS = ROOT / "experiments/tracking_min3_v1/filtered/rotation_tracks_all.csv"
 STAGES = {
     "sdk-check": "tools/check_camera_sdk.py",
     "sdk-audit": "tools/audit_camera_runtime.py",
+    "event-timing": "tools/audit_event_timing.py",
+    "spin-check": "tools/review_spin_acceptance.py",
     "capture": "tools/dual_capture_isolated.py",
     "camera-tune": "tools/dual_camera_tuner.py",
     "calibration-capture": "tools/manual_calibration_capture.py",

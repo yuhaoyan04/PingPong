@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 
 from .spin import _rotate_vectors, solve_constant_sphere_rotation
+from .spin_direction import describe_omega, summarize_directions
 
 
 OBSERVED_SOURCES = {"detection_high", "detection_low", "optical_flow"}
@@ -169,6 +170,7 @@ def fit_pairs(pairs, config):
     if not result["rejection_reasons"]:
         result.update(numerically_usable=True, candidate_spin_rpm=rpm, candidate_rps=rpm / 60,
                       candidate_axis_camera=(omega / magnitude).tolist() if magnitude > 1e-8 else None)
+        result.update(describe_omega(omega))
     return result
 
 
@@ -200,6 +202,7 @@ def estimate_tracks(tracks, dataset, config):
                                 "candidate_median_rpm": float(np.median(rates)) if rates else None,
                                 "candidate_min_rpm": float(min(rates)) if rates else None,
                                 "candidate_max_rpm": float(max(rates)) if rates else None,
+                                **summarize_directions(subset),
                                 "note": "Descriptive summary of overlapping windows, not a confidence interval or stereo fusion."})
     return {"status": "conditional_spin_candidates" if usable else "no_usable_spin_candidates",
             "method": "orthographic_visible_sphere_constant_finite_rotation_ransac_soft_l1",
@@ -226,15 +229,16 @@ def write_outputs(report, output):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     (output / "spin_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False), encoding="utf-8")
-    group_fields = ["camera", "group", "windows", "usable_windows", "candidate_median_rpm", "candidate_min_rpm", "candidate_max_rpm", "spin_rpm", "note"]
+    group_fields = ["camera", "group", "windows", "usable_windows", "candidate_median_rpm", "candidate_min_rpm", "candidate_max_rpm", "engineering_direction_status", "engineering_candidate_rps", "engineering_candidate_rpm", "stable_windows", "axis_x", "axis_y", "axis_z", "front_motion_label", "image_z_spin_sense", "world_spin_type", "spin_rpm", "note"]
     with (output / "spin_by_group.csv").open("w", encoding="utf-8-sig", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=group_fields)
+        writer = csv.DictWriter(stream, fieldnames=group_fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(report["group_summaries"])
     fields = ["camera", "group", "window_id", "start_us", "end_us", "seconds_since_first",
               "numerically_usable", "candidate_spin_rpm", "candidate_rps", "spin_rpm", "accepted",
               "pairs", "unique_observations", "segments", "inlier_fraction", "condition",
               "inlier_reprojection_rms_px", "rejection_reasons"]
+    fields += ["axis_x", "axis_y", "axis_z", "front_direction_dx", "front_direction_dy", "front_motion_label", "image_z_spin_sense", "world_spin_type"]
     with (output / "spin_windows.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()

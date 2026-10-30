@@ -108,6 +108,12 @@ def create_review(report, tracks, dataset, output):
         median = f'{row["candidate_median_rpm"]:.1f}' if row['candidate_median_rpm'] is not None else '—'
         span = f'{row["candidate_min_rpm"]:.1f}–{row["candidate_max_rpm"]:.1f}' if row['candidate_min_rpm'] is not None else '—'
         page += f'<tr><td>{html.escape(row["group"])}</td><td>{row["usable_windows"]}/{row["windows"]}</td><td>{median}</td><td>{span}</td></tr>'
+    page += '</table><h2>旋转方向与时间稳定性</h2><p>有向转轴使用各自相机坐标：x 右、y 下、z 远离相机；正负号保留。前表面箭头是可见球心处标记的运动方向。上旋/下旋/侧旋的体育分类需要飞行方向和世界竖直方向，当前不作猜测。工程稳定表示至少三个窗口符合 15° 轴向和 20% 转速一致性检查，不是精度验证。</p><table><tr><th>组</th><th>状态</th><th>稳定窗口</th><th>工程候选 RPS</th><th>有向单位轴 (x,y,z)</th><th>前表面运动</th></tr>'
+    labels = {'up': '↑ 上', 'down': '↓ 下', 'left': '← 左', 'right': '→ 右', 'up_left': '↖ 左上', 'up_right': '↗ 右上', 'down_left': '↙ 左下', 'down_right': '↘ 右下', 'unresolved': '未确定'}
+    for row in report['group_summaries']:
+        axis = ', '.join(f'{row[k]:+.3f}' for k in ['axis_x','axis_y','axis_z']) if row.get('axis_x') is not None else '—'
+        rate = f'{row["engineering_candidate_rps"]:.1f}' if row.get('engineering_candidate_rps') is not None else '—'
+        page += f'<tr><td>{html.escape(row["group"])}</td><td>{row.get("engineering_direction_status", "not_checked")}</td><td>{row.get("stable_windows", 0)}</td><td>{rate}</td><td>{axis}</td><td>{labels.get(row.get("front_motion_label"), "未确定")}</td></tr>'
     page += '</table><img src="spin_candidates.png" alt="spin candidates"><h2>观测与旋转模型重投影</h2><p>每组展示一个观测点最多的可用窗口。绿色为跟踪框中心，红色为从每段起点按拟合角速度预测的位置；观察长时间漂移与错配。背景仅为窗口中一张裁剪图。</p><div class="gallery">'
     page += "".join(galleries) + '</div><h2>全部窗口</h2><table><thead><tr><th>组</th><th>相对起点 ms</th><th>候选 RPM</th><th>对应点对</th><th>内点 RMS px</th><th>检查结果</th></tr></thead><tbody>'
     page += "".join(table) + "</tbody></table></html>"

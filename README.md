@@ -6,6 +6,10 @@
 
 ## 审核与运行
 
+- [转速、方向与逐事件时间优先审核](output/latest_spin/acceptance/review.html)：文献对照、有向轴与方向稳定性、全量事件间隔。
+- [转速与逐事件时间审核包](output/latest_spin/spin_review_bundle.zip)：解压后打开 `acceptance/review.html`，含全量事件间隔 NPZ。
+- [转速与时间验收说明](docs/SPIN_TIMING_ACCEPTANCE.md)。
+
 - [最新完整运动审核页](output/latest/motion/review.html)：标记轨迹、球心路径、像素球速、条件横向速度与转速候选，可按时间查看。
 - [离线审核下载包](output/latest/review_bundle.zip)：解压后打开 `motion/review.html`。
 - [逐窗口结果](output/latest/spin/spin_windows.csv)、[分组汇总](output/latest/spin/spin_by_group.csv)、[完整报告](output/latest/spin/spin_report.json)。
