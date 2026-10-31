@@ -295,7 +295,9 @@ class RawWindowReader:
 
     def next_duration(self, duration_us: int) -> np.ndarray:
         events = self.reader.get_n_time_events(int(duration_us))
-        return events if events is not None else np.empty(0, dtype=EVENT_DTYPE)
+        # SDK arrays alias a reusable decode buffer. Overlapping windows retain
+        # previous batches, so ownership must transfer before the next read.
+        return np.array(events, dtype=EVENT_DTYPE, copy=True) if events is not None else np.empty(0, dtype=EVENT_DTYPE)
 
 
 class IncrementalTimeSurface:

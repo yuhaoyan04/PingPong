@@ -2,11 +2,14 @@
 
 事件相机乒乓球项目：相机采集、球心追踪和运动补偿、分相机增强与去噪、人工标注、双相机分别训练 YOLO、标记簇追踪、离线球面旋转估计。
 
-本工作区整合了 `yuhaoyan04/PingPong` 的 `3f08a83` 与现有 YOLO 工作区。**最新数据裁剪 → 两套已训练模型 → 连续三帧有效轨迹 → 转速候选与重投影审核，已经实际跑通。** Linux SDK 导入和同步测试 RAW 小窗口重放已验证；SDK 当前未发现实物相机。正式三维球速仍需要真实空间标定，物理转速精度还需要对应采集时间、球体几何与独立真值验证。
+本工作区整合了 `yuhaoyan04/PingPong` 的 `3f08a83` 与现有 YOLO 工作区。**最新数据裁剪 → 两套已训练模型 → 连续三帧有效轨迹 → 转速候选与重投影审核，已经实际跑通。** 已用实际发球双路 RAW 核对 5.475 亿个事件及旧参考画面的时间对应，并重建完整视野视频。两相机物理同步精度、球体几何与转速真值仍未完成独立标定；正式三维球速还需要空间标定。
 
 ## 审核与运行
 
-- [双视角时间与裁剪范围审核](output/latest_sync/review.html)：原双路全视野、严格同时间戳的共同裁剪；[同步审计说明](docs/CLIP_SYNC_AUDIT.md)。
+- [实际发球 RAW、轨迹与转速审核](output/latest_sync/review.html)：14 段新视频，完整双路视野、标记轨迹、四种半径下的转速与方向、逐帧控制；[下载审核包](output/latest_sync/raw_review_bundle.zip)。
+- [纹理重复周期交叉检查](output/latest_sync/appearance/review.html)：不使用 YOLO 簇 ID 或球面拟合半径参数，保留重复分支歧义；[RAW 核验说明](docs/BALL_RAW_VALIDATION.md)。
+- [RAW 球边界上的四种半径对照](output/latest_sync/raw_radii/review.html)：同一原图、同一球心，直接审核假设半径与对应转速。
+- [此前导出裁剪范围审核](output/sync_audit_v8/review.html)；[同步审计说明](docs/CLIP_SYNC_AUDIT.md)。
 
 - [逐帧转速、方向与四种球半径对照](output/latest_radius/review.html)：同步数值、方向箭头、逐帧暂停与单格放大。
 - [半径对照视频审核包](output/latest_radius/radius_review_bundle.zip)；[显示规则与半径说明](docs/RADIUS_VIDEO_REVIEW.md)。

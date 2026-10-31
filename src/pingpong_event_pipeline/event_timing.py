@@ -17,6 +17,15 @@ from numba import njit
 EVENTS = np.dtype([("x", "<u2"), ("y", "<u2"), ("polarity", "u1"), ("timestamp", "<u8")])
 
 
+def stream_sha256(path):
+    """Bounded-memory hashing, including Python 3.9/3.10 SDK environments."""
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 class AdjacentIntervals:
     def __init__(self):
         self.events = 0
@@ -172,6 +181,57 @@ def reference_evt3(path, state, word_batch=65536):
             yield decode_evt3_words(np.frombuffer(block, dtype="<u2"), state)
 
 
+@njit(cache=True)
+def _count_event_clock(events, first_us, counts):
+    outside = 0
+    for event in events:
+        i = int(event['timestamp']) - first_us
+        if i < 0 or i >= len(counts):
+            outside += 1
+        else:
+            counts[i] += 1
+    return outside
+
+
+def export_clock_runs(path, timing_report, output):
+    """Lossless ordered event times without duplicating every pixel record.
+
+    counts[k] consecutive events have timestamp first_us+k. For verified
+    monotonic input this represents every original adjacent delta, including
+    zeros and batch boundaries. The very first event has no previous delta.
+    """
+    path, output = Path(path), Path(output)
+    report = json.loads(Path(timing_report).read_text())
+    if not report['decoded_intervals_verified'] or Path(report['raw']).resolve() != path.resolve():
+        raise ValueError('requires a verified timing report for this RAW')
+    reference = report['reference_evt3']
+    first, last = reference['first_event_us'], reference['last_event_us']
+    length = last-first+1
+    if length <= 0 or length > 100_000_000:
+        raise ValueError('clock run exporter supports at most 100 seconds per recording')
+    counts = np.zeros(length, np.uint32)
+    with path.open('rb') as stream:
+        _, start = evt3_header(stream)
+    state = evt3_state(start); sequence = hashlib.sha256(); total = 0; outside = 0
+    for e in reference_evt3(path, state):
+        outside += _count_event_clock(e, first, counts)
+        sequence.update(e.tobytes()); total += len(e)
+    if outside or total != reference['events'] or sequence.hexdigest() != reference['event_sequence_sha256']:
+        raise ValueError('current event stream differs from the verified timing report')
+    if int(counts.max()) <= np.iinfo(np.uint16).max:
+        counts = counts.astype(np.uint16)
+    if output.exists():
+        raise FileExistsError(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(output, counts=counts, first_timestamp_us=np.uint64(first),
+                        last_timestamp_us=np.uint64(last), events=np.uint64(total),
+                        event_sequence_sha256=np.array(sequence.hexdigest()), timestamp_quantum_us=np.uint64(1))
+    return {'file': str(output.resolve()), 'events': total, 'timestamp_bins': len(counts),
+            'maximum_events_per_timestamp': int(counts.max()), 'source_event_sequence_sha256': sequence.hexdigest(),
+            'encoding': 'counts[k] consecutive events at first_timestamp_us+k; first event has no previous delta',
+            'size_bytes': output.stat().st_size}
+
+
 def audit_raw(path, output, batch_events=200000, export_events=True):
     from dvsense_driver.raw_file_reader import RawFileReader
     path, output = Path(path), Path(output)
@@ -221,9 +281,9 @@ def audit_raw(path, output, batch_events=200000, export_events=True):
                     sample_count += 1
                 previous_xypt = e[-1].copy()
                 part += 1
-                if reader.reached_end_of_events():
-                    termination = "sdk_eof"
-                    break
+                # The SDK end timestamp/EOF flag can precede a remaining partial
+                # event batch. Only an empty read establishes stream exhaustion;
+                # the independent byte decoder then checks completeness.
     finally:
         close = getattr(reader, "close", None)
         if callable(close):
@@ -241,8 +301,10 @@ def audit_raw(path, output, batch_events=200000, export_events=True):
         if isinstance(records, list):
             history = next((r for r in records if r["file"].replace("\\", "/").split("/")[-1] == path.name), None)
     matches_history = None if history is None else (sdk["events"] == history["events"] and sdk["last_event_us"] == history["last_event_us"])
+    # Ball recordings are multi-GB: hash without retaining the RAW in RAM.
+    raw_sha256 = stream_sha256(path)
     report = {"raw": str(path.resolve()), "raw_size_bytes": path.stat().st_size,
-              "raw_sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "header": header,
+              "raw_sha256": raw_sha256, "header": header,
               "timestamp_unit": "microseconds", "timestamp_quantum_us": 1,
               "formula": "delta_us[i] = int64(timestamp[i]) - int64(timestamp[i-1])",
               "sdk_batch_events": batch_events, "sdk_termination": termination,
@@ -255,11 +317,12 @@ def audit_raw(path, output, batch_events=200000, export_events=True):
               "decoded_intervals_verified": bool(agreement and sdk["events"] > 1 and sdk["negative_intervals"] == 0
                                                 and not invalid_coordinates and not np.any(state[6:9])),
               "physical_time_accuracy_calibrated": False, "training_recording_timing_verified": False,
+              "two_camera_synchronization_verified": False,
               "interpretation": ["Zero delta means the same 1 us bin, not proven physical simultaneity.",
                                  "Batch size/USB timing/crop frame interval are not event delta.",
                                  "Original order is preserved; negative deltas are retained and reported.",
                                  "Byte-level agreement verifies the current file, not absent tail data or clock accuracy.",
-                                 "This clock-test RAW is not the ball-training RAW."],
+                                 "An individual RAW audit alone does not establish two-camera synchronization or its mapping to exported training frames."],
               "exports": {"full_events": "events_*.npz" if export_events else None,
                           "sample": "adjacent_events_sample.csv", "histogram": "delta_histogram.csv"}}
     with (output / "delta_histogram.csv").open("w", encoding="utf-8-sig", newline="") as stream:

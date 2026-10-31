@@ -62,3 +62,49 @@ def test_uint64_subtraction_cannot_underflow_into_huge_positive_interval():
     assert dt.tolist() == [0, -10]
     with pytest.raises(ValueError, match="signed"):
         AdjacentIntervals().ingest(events([2**63 + 1]))
+
+
+def test_raw_audit_drains_partial_batch_despite_premature_sdk_eof(tmp_path, monkeypatch):
+    import sys
+    import types
+    from pingpong_event_pipeline.event_timing import audit_raw
+    words = np.array([0x8001, 0x6005, 0x0002, 0x2003, 0x2004, 0x2005], np.uint16)
+    source = decode_evt3_words(words, evt3_state())
+    path = tmp_path / 'ball.raw'
+    path.write_bytes(b'% evt 3.0\n% dvs_start_timestamp 0\n% end\n' + words.astype('<u2').tobytes())
+    class Reader:
+        def __init__(self, path): self.parts = iter([source[:2], source[2:], source[:0]])
+        def load_file(self): return True
+        def get_start_timestamp(self): return True, 4101
+        def get_end_timestamp(self): return True, 4101
+        def get_width(self): return 1280
+        def get_height(self): return 720
+        def get_n_events(self, count): return next(self.parts)
+        def reached_end_of_events(self): return True  # tail batch still remains!
+    monkeypatch.setitem(sys.modules, 'dvsense_driver.raw_file_reader', types.SimpleNamespace(RawFileReader=Reader))
+    report = audit_raw(path, tmp_path / 'out', batch_events=2, export_events=False)
+    assert report['sdk']['events'] == 3
+    assert report['sdk_reference_exact_agreement']
+    assert report['decoded_intervals_verified']
+    assert report['sdk_termination'] == 'empty_read'
+
+
+def test_lossless_clock_runs_recover_every_adjacent_delta(tmp_path):
+    import json
+    from pingpong_event_pipeline.event_timing import export_clock_runs
+    words = np.array([0x8001,0x6005,0x0002,0x2003,0x2004,0x2005,0x6006,0x2006],np.uint16)
+    source = decode_evt3_words(words,evt3_state())
+    path = tmp_path/'events.raw'
+    path.write_bytes(b'% evt 3.0\n% dvs_start_timestamp 0\n% end\n'+words.astype('<u2').tobytes())
+    acc=AdjacentIntervals(); acc.ingest(source)
+    report={'raw':str(path),'decoded_intervals_verified':True,'reference_evt3':acc.summary()}
+    report_path=tmp_path/'timing.json'; report_path.write_text(json.dumps(report))
+    out=tmp_path/'clock.npz'; result=export_clock_runs(path,report_path,out)
+    encoded=np.load(out)
+    recovered=np.repeat(np.arange(len(encoded['counts']),dtype=np.int64)+int(encoded['first_timestamp_us']),encoded['counts'])
+    assert result['events']==4
+    assert recovered.tolist()==[4101,4101,4101,4102]
+    assert np.diff(recovered).tolist()==[0,0,1]
+    report['decoded_intervals_verified']=False;report_path.write_text(json.dumps(report))
+    with pytest.raises(ValueError,match='verified'):
+        export_clock_runs(path,report_path,tmp_path/'unverified.npz')
