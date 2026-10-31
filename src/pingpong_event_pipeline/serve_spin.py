@@ -109,6 +109,9 @@ def fit_two_view(pairs_by_camera, R_F59_to_F3E, config):
         solo = fit_pairs(pairs, config)
         if "omega_camera_rad_s" in solo:
             proposals.append(mapping @ np.array(solo["omega_camera_rad_s"]))
+    result["observation_timestamps_us"] = sorted(set.intersection(*[
+        {p[1]["timestamp"] for p in v["pairs"]} | {p[2]["timestamp"] for p in v["pairs"]}
+        for v in views.values()]))
     # Balance the RANSAC input; a noisy view with many tracks cannot dominate
     # simply by contributing more correlated lags.
     sampled = []
@@ -183,8 +186,9 @@ def fit_two_view(pairs_by_camera, R_F59_to_F3E, config):
     return result
 
 
-def analyze_serves(tracks, dataset, config, previous_report=None, orientation_profile=None):
-    segments, sources, count = read_tracks(tracks, dataset, int(config.get("max_gap_us", 750)))
+def analyze_serves(tracks, dataset, config, previous_report=None, orientation_profile=None,
+                   radius_multiplier=1.0, fixed_relative_orientations=None):
+    segments, sources, count = read_tracks(tracks, dataset, int(config.get("max_gap_us", 750)), radius_multiplier)
     groups = defaultdict(lambda: defaultdict(list))
     for (camera, group, segment), run in segments.items():
         groups[group.rsplit("_", 1)[0]][camera].append((segment, run))
@@ -247,7 +251,11 @@ def analyze_serves(tracks, dataset, config, previous_report=None, orientation_pr
     for serve, rows in work.items():
         others = [s for s in samples if s["serve"] != serve]
         held = align_axes(others)
-        if measured is not None:
+        if fixed_relative_orientations is not None:
+            fixed = fixed_relative_orientations[serve]
+            mapping = proper_rotation(fixed["R_F59_to_F3E"]) if fixed["R_F59_to_F3E"] is not None else None
+            mode = "fixed_baseline_orientation_for_radius_comparison"
+        elif measured is not None:
             mapping, mode = measured, "provided_camera_orientation"
         elif registration["usable"] and held["usable"]:
             mapping, mode = np.array(held["R_F59_to_F3E"]), "experimental_orientation_target_serve_excluded"
@@ -264,7 +272,7 @@ def analyze_serves(tracks, dataset, config, previous_report=None, orientation_pr
         summary = summarize_directions(windows)
         usable = [w for w in windows if w["numerically_usable"]]
         output.append({"serve": serve, "views": diagnostics[serve], "orientation_mode": mode,
-                       "orientation_training_serves": held.get("training_serves", []) if measured is None else [],
+                       "orientation_training_serves": fixed_relative_orientations[serve]["orientation_training_serves"] if fixed_relative_orientations is not None else (held.get("training_serves", []) if measured is None else []),
                        "R_F59_to_F3E": mapping.tolist() if mapping is not None else None,
                        "windows": windows, "joint_summary": summary, "joint_usable_windows": len(usable),
                        "joint_window_rps_range": [min(w["candidate_rps"] for w in usable), max(w["candidate_rps"] for w in usable)] if usable else None,
@@ -272,6 +280,8 @@ def analyze_serves(tracks, dataset, config, previous_report=None, orientation_pr
     return {"method": "two_view_shared_finite_SO3_per_serve", "reference_camera": "F3E",
             "config": config, "tracks_sha256": sha256(tracks), "dataset": str(dataset.resolve()),
             "input_observations": count, "sources": sources, "serves": output,
+            "sphere_radius_multiplier": radius_multiplier,
+            "orientation_fixed_to_baseline": fixed_relative_orientations is not None,
             "orientation_registration": registration, "orientation_profile": str(orientation_profile) if orientation_profile else None,
             "minimum_allowed_rps": 0, "physical_accuracy_validated": False, "training_raw_timing_verified": False,
             "limitations": ["Experimental relative orientation is inferred from other serves, not measured camera extrinsics.",

@@ -26,13 +26,16 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def read_tracks(path, dataset, max_gap_us=750):
+def read_tracks(path, dataset, max_gap_us=750, sphere_radius_multiplier=1.0):
     """Validate identities, continuity, crop geometry and manifest time alignment.
 
     Never guess a frame rate, silently join runs, or accept prediction holds.
     Empty exports are valid and produce an empty report.
     """
     path, dataset = Path(path), Path(dataset)
+    multiplier = float(sphere_radius_multiplier)
+    if not np.isfinite(multiplier) or multiplier <= 0:
+        raise ValueError("sphere_radius_multiplier must be finite and positive")
     with path.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream))
     groups, sources, segments = {}, {}, defaultdict(list)
@@ -60,10 +63,11 @@ def read_tracks(path, dataset, max_gap_us=750):
             if width != height or width != 256:
                 raise ValueError("expected square 256-pixel YOLO crops")
             groups[key] = {"metadata": metadata, "manifest": manifest,
-                           "crop_center_px": width / 2, "sphere_radius_px": width / (2 * scale)}
+                           "crop_center_px": width / 2, "sphere_radius_px": width / (2 * scale) * multiplier}
             sources[f"{camera}/{group}"] = {
                 "metadata_sha256": sha256(meta_path), "manifest_sha256": sha256(manifest_path),
-                "crop_center_px": [width / 2, height / 2], "sphere_radius_px": width / (2 * scale),
+                "crop_center_px": [width / 2, height / 2], "sphere_radius_px": width / (2 * scale) * multiplier,
+                "nominal_sphere_radius_px": width / (2 * scale), "sphere_radius_multiplier": multiplier,
                 "crop_radius_scale": scale, "timestamp_source": "manifest_timestamp_us",
                 "timing_verified": False, "ball_geometry_verified": False,
                 "source_warning": metadata.get("warning"),
@@ -125,6 +129,9 @@ def fit_pairs(pairs, config):
     result = {"pairs": len(pairs), "spin_rpm": None, "accepted": False,
               "candidate_spin_rpm": None, "candidate_rps": None, "candidate_axis_camera": None,
               "numerically_usable": False, "rejection_reasons": []}
+    result["observation_timestamps_us"] = sorted({r["timestamp"] for _, a, b, _ in pairs for r in (a, b)})
+    result["observation_start_us"] = min(result["observation_timestamps_us"], default=None)
+    result["observation_end_us"] = max(result["observation_timestamps_us"], default=None)
     minimum = int(config.get("minimum_pairs", 8))
     unique = {(segment, r["frame"]) for segment, a, b, _ in pairs for r in (a, b)}
     result["unique_observations"] = len(unique)

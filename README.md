@@ -6,6 +6,9 @@
 
 ## 审核与运行
 
+- [逐帧转速、方向与四种球半径对照](output/latest_radius/review.html)：同步数值、方向箭头、逐帧暂停与单格放大。
+- [半径对照视频审核包](output/latest_radius/radius_review_bundle.zip)；[显示规则与半径说明](docs/RADIUS_VIDEO_REVIEW.md)。
+
 - [逐次发球双视角联合审核](output/latest_serve/review.html)：共享转速模型、同步视频、逐组失败原因与单视角回退。
 - [双视角审核下载包](output/latest_serve/serve_review_bundle.zip)；[零转速与联合建模说明](docs/SERVE_TWO_VIEW_SPIN.md)。
 
