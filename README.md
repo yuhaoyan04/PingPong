@@ -6,6 +6,7 @@
 
 ## 审核与运行
 
+- [全链路检查与迭代审核](output/latest_iteration/review.html)：训练配方对照、难例审核队列、固定几何下的转速/方向对照视频；[本轮结论与复现](docs/SYSTEM_ITERATION.md)。
 - [标记中心轨迹平滑前后对照](output/latest_smoothing/review.html)：7 段双视角视频、固定窗口转速/方向、逐帧控制、原始与平滑坐标；[下载审核包](output/latest_smoothing/smoothing_review_bundle.zip)。
 - [bbox 轨迹如何测转速、局部曲线平滑的公式与限制](docs/MARKER_TRAJECTORY_SMOOTHING.md)。新运行的转速、方向与运动可视化默认使用该平滑层，历史输出保留。
 

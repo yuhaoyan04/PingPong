@@ -6,6 +6,7 @@ from scipy.interpolate import UnivariateSpline
 from scipy.signal import medfilt, savgol_filter
 
 from .detector import HoughCircleBallDetector
+from .events import checked_event_times
 
 
 def robust_seed(points):
@@ -56,8 +57,8 @@ def refine_track(events, points, step_us=1000, max_seed_gap_us=15000):
     t, keep, curves, radius = robust_seed(points)
     good = points[keep]
     ts = np.arange(int(good[0, 0]), int(good[-1, 0])+1, step_us, dtype=np.int64)
-    ordered = events[np.argsort(events['timestamp'], kind='stable')]
-    event_t = ordered['timestamp'].astype(np.int64, copy=False)
+    ordered=events
+    event_t=checked_event_times(ordered)
     records = []
     for now in ts:
         right = np.searchsorted(good[:, 0], now, side='right')
@@ -75,6 +76,8 @@ def refine_track(events, points, step_us=1000, max_seed_gap_us=15000):
                     'predictive_refine_candidates': True, 'predictive_nms_px': 3})
         found = detector._search_ring_candidates_near(image, half, half, r, 5)
         ranked = sorted(found, key=lambda c: c[3] - .008*np.hypot(c[0]-half, c[1]-half) - .008*abs(c[2]-r), reverse=True)
+        if not ranked:
+            records.append([float(now),*seed,r,0.,0.,*seed]);continue
         x, y, rr, score = ranked[0]
         supported = bool(score >= .22 and np.hypot(x-half, y-half) <= 9 and abs(rr-r) <= 5)
         center = seed + np.array([x-half, y-half]) if supported else seed
@@ -108,8 +111,8 @@ def refine_track_adaptive(events, points, step_us=1000, max_seed_gap_us=15000):
     points = np.asarray(points, dtype=float).reshape(-1, 4)
     _, keep, curves, radii = robust_seed(points)
     good = points[keep]
-    ordered = events[np.argsort(events['timestamp'], kind='stable')]
-    event_t = ordered['timestamp'].astype(np.int64, copy=False)
+    ordered=events
+    event_t=checked_event_times(ordered)
     records = []
     previous_radius = None
     previous_time = None

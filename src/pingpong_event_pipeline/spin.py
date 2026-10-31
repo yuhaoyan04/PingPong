@@ -6,6 +6,7 @@ from itertools import combinations
 import cv2
 import numpy as np
 from scipy.optimize import least_squares
+from .rotation_weights import weighted_soft_l1
 
 try:
     from numba import njit
@@ -357,6 +358,25 @@ def _score_omega_candidates_kernel(s0, s1, dt, omegas, cosine_threshold):
     return counts, mean_cosine
 
 
+@njit(cache=True,nogil=True)
+def _score_weighted_omega_candidates(s0,s1,dt,omegas,cosine_threshold,weights):
+    mass=np.zeros(len(omegas));means=np.full(len(omegas),-1.)
+    for h in range(len(omegas)):
+        w=omegas[h];m=np.sqrt(np.sum(w*w));total=0.
+        axis=w/max(m,1e-12)
+        for i in range(len(s0)):
+            if m<1e-12:
+                value=np.sum(s0[i]*s1[i])
+            else:
+                v=s0[i];angle=m*dt[i];co=np.cos(angle);si=np.sin(angle)
+                pred=v*co+np.cross(axis,v)*si+axis*np.sum(axis*v)*(1-co)
+                value=np.sum(pred*s1[i])
+            if value>=cosine_threshold:
+                mass[h]+=weights[i];total+=weights[i]*value
+        if mass[h]>0:means[h]=total/mass[h]
+    return mass,means
+
+
 def solve_constant_sphere_rotation(
     sphere0: np.ndarray,
     sphere1: np.ndarray,
@@ -368,6 +388,7 @@ def solve_constant_sphere_rotation(
     seed: int = 97,
     ransac_evaluation_limit: int = 0,
     finalist_count: int = 12,
+    pair_weights=None,
 ) -> tuple[np.ndarray, np.ndarray, float, float]:
     """Pool many sparse stereo/time correspondences into one constant spin."""
     s0 = np.asarray(sphere0, np.float64).reshape(-1, 3)
@@ -375,12 +396,17 @@ def solve_constant_sphere_rotation(
     dt = np.asarray(dt_s, np.float64).reshape(-1)
     if len(s0) != len(s1) or len(s0) != len(dt):
         raise ValueError("sphere vectors and dt_s must have matching lengths")
+    weighted=pair_weights is not None
+    weights=np.ones(len(dt)) if pair_weights is None else np.asarray(pair_weights,float)
+    if weights.shape!=dt.shape or not np.isfinite(weights).all() or np.any(weights<=0):
+        raise ValueError('pair weights must match correspondences and be finite and positive')
     finite = (np.isfinite(s0).all(axis=1) & np.isfinite(s1).all(axis=1) &
               np.isfinite(dt) & (dt > 0))
-    s0, s1, dt = s0[finite], s1[finite], dt[finite]
+    s0, s1, dt,weights = s0[finite], s1[finite], dt[finite],weights[finite]
     count = len(s0); empty = np.zeros(count, bool)
     if count < minimum_correspondences:
         return np.zeros(3), empty, float("inf"), float("inf")
+    weights=weights/weights.mean()
     s0 /= np.maximum(np.linalg.norm(s0, axis=1, keepdims=True), 1e-12)
     s1 /= np.maximum(np.linalg.norm(s1, axis=1, keepdims=True), 1e-12)
     A = np.zeros((count, 3, 3), np.float64)
@@ -398,7 +424,7 @@ def solve_constant_sphere_rotation(
     cosine_threshold = float(np.cos(angular_threshold_rad))
     sample_size = min(2, count)
     for _ in range(hypotheses):
-        sample = rng.choice(count, sample_size, replace=False)
+        sample = rng.choice(count, sample_size, replace=False,p=weights/weights.sum() if weighted else None)
         if sample_size == 2 and abs(float(np.dot(s0[sample[0]], s0[sample[1]]))) > .97:
             continue
         omega, *_ = np.linalg.lstsq(A[sample].reshape(-1, 3),
@@ -409,8 +435,11 @@ def solve_constant_sphere_rotation(
     if not hypotheses_omega:
         return np.zeros(3), empty, float("inf"), float("inf")
     hypotheses_omega = np.asarray(hypotheses_omega, np.float64)
-    counts, mean_cosine = _score_omega_candidates_kernel(
-        s0[evaluation], s1[evaluation], dt[evaluation], hypotheses_omega, cosine_threshold)
+    if weighted:
+        counts,mean_cosine=_score_weighted_omega_candidates(s0[evaluation],s1[evaluation],dt[evaluation],hypotheses_omega,cosine_threshold,weights[evaluation])
+    else:
+        counts, mean_cosine = _score_omega_candidates_kernel(
+            s0[evaluation], s1[evaluation], dt[evaluation], hypotheses_omega, cosine_threshold)
     order = np.lexsort((mean_cosine, counts))
     finalist_indices = order[-min(finalist_count, len(order)):]
     best_key = (-1, -float("inf")); best_omega = None; best_inliers = empty
@@ -421,7 +450,7 @@ def solve_constant_sphere_rotation(
         inliers = residual <= angular_threshold_rad
         n = int(np.count_nonzero(inliers))
         median = float(np.median(residual[inliers])) if n else float("inf")
-        key = (n, -median)
+        key = (float(weights[inliers].sum()),-float(np.average(residual[inliers],weights=weights[inliers]))) if weighted and n else (n,-median)
         if key > best_key:
             best_key, best_omega, best_inliers = key, candidate, inliers
     if best_omega is None or np.count_nonzero(best_inliers) < minimum_correspondences:
@@ -432,7 +461,7 @@ def solve_constant_sphere_rotation(
     for _ in range(2):
         def residual_function(value):
             return (_rotate_vectors(s0[active], value, dt[active]) - s1[active]).reshape(-1)
-        fit = least_squares(residual_function, omega, loss="soft_l1",
+        fit = least_squares(residual_function, omega, loss=weighted_soft_l1(np.repeat(weights[active],3)) if weighted else "soft_l1",
                             f_scale=max(angular_threshold_rad * .5, 1e-4), max_nfev=80)
         omega = fit.x
         predicted = _rotate_vectors(s0, omega, dt)
@@ -443,8 +472,8 @@ def solve_constant_sphere_rotation(
     if np.linalg.norm(omega) > maximum_rad_s or np.count_nonzero(active) < minimum_correspondences:
         return np.zeros(3), active, float("inf"), float("inf")
     angular = np.arccos(np.clip(np.sum(_rotate_vectors(s0, omega, dt) * s1, axis=1), -1, 1))
-    rms = float(np.sqrt(np.mean(angular[active] ** 2)))
-    design = A[active].reshape(-1, 3)
+    rms = float(np.sqrt(np.average(angular[active] ** 2,weights=weights[active])))
+    design = (A[active]*np.sqrt(weights[active])[:,None,None]).reshape(-1, 3)
     singular = np.linalg.svd(design, compute_uv=False)
     condition = float(singular[0] / max(singular[-1], 1e-12))
     return omega, active, rms, condition

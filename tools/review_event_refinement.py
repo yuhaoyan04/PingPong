@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from pingpong_event_pipeline.ball_event_refine import refine_track, refine_track_adaptive
-from pingpong_event_pipeline.events import RawWindowReader, trajectory_compensated_ball_patch
+from pingpong_event_pipeline.events import RawWindowReader, trajectory_compensated_ball_patch,checked_event_times
 
 
 def to_binary(events, path, now):
@@ -33,8 +33,8 @@ def main():
     events = reader.window(int(coarse[0, 0])-1000, int(coarse[-1, 0])+1)
     records, inliers = (refine_track_adaptive if args.adaptive_radius else refine_track)(events, coarse)
     if len(records) < 2: raise ValueError('refinement produced insufficient time samples')
-    ordered = events[np.argsort(events['timestamp'], kind='stable')]
-    timestamps = ordered['timestamp'].astype(np.int64, copy=False)
+    ordered=events
+    timestamps=checked_event_times(ordered)
     seed_path = np.column_stack((records[:, 0], records[:, 6:8], records[:, 3]))
     new_path = records[:, :4]
     args.output.mkdir(parents=True)

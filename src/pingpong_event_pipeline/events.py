@@ -22,6 +22,24 @@ EVENT_DTYPE = np.dtype([
 ])
 
 
+def checked_event_times(events):
+    """Preserve RAW order; reject timestamp anomalies before geometric warping."""
+    if len(events) and int(events['timestamp'].max())>np.iinfo(np.int64).max:
+        raise ValueError('event timestamp exceeds safe signed range')
+    times=np.ascontiguousarray(events['timestamp'],dtype=np.int64)
+    if len(times)>1 and np.any(times[1:]<times[:-1]):
+        raise ValueError('non-monotonic event timestamps; refusing to sort away a RAW/SDK anomaly')
+    return times
+
+
+def corrected_event_times(events,correction_us):
+    times=checked_event_times(events);offset=int(correction_us)
+    if len(times) and (int(times[0])+offset<0 or int(times[-1])+offset>np.iinfo(np.int64).max):
+        raise ValueError('timestamp correction would underflow or overflow')
+    result=events.copy();result['timestamp']=times+offset
+    return result
+
+
 @njit(cache=True)
 def _ball_patch_kernel(x_values, y_values, polarities, timestamps, cx, cy, radius,
                        size, end_us, tau_us, vx, vy, max_age_us):
@@ -287,6 +305,7 @@ class RawWindowReader:
         events = self.reader.get_n_time_events(seek_start, hi - seek_start)
         if events is None or not len(events):
             return np.empty(0, dtype=EVENT_DTYPE)
+        checked_event_times(events)
         timestamp = events['timestamp']
         return events[(timestamp >= lo) & (timestamp < hi)]
 
@@ -297,7 +316,9 @@ class RawWindowReader:
         events = self.reader.get_n_time_events(int(duration_us))
         # SDK arrays alias a reusable decode buffer. Overlapping windows retain
         # previous batches, so ownership must transfer before the next read.
-        return np.array(events, dtype=EVENT_DTYPE, copy=True) if events is not None else np.empty(0, dtype=EVENT_DTYPE)
+        result = np.array(events, dtype=EVENT_DTYPE, copy=True) if events is not None else np.empty(0, dtype=EVENT_DTYPE)
+        checked_event_times(result)
+        return result
 
 
 class IncrementalTimeSurface:
@@ -362,6 +383,7 @@ def synchronized_batches(
     warmup_us: int = 0,
 ) -> Iterator[Tuple[int, np.ndarray, np.ndarray]]:
     """Yield each event once in consecutive synchronized batches."""
+    if step_us<=0 or warmup_us<0:raise ValueError('positive step and nonnegative warmup required')
     common_start = max(left.info.start_us + left_correction_us,
                        right.info.start_us + right_correction_us)
     output_start = max(common_start, int(range_start_us) if range_start_us is not None else common_start)
@@ -374,9 +396,14 @@ def synchronized_batches(
         left_events = left.next_duration(step_us); right_events = right.next_duration(step_us)
         cursor += step_us
         if left_correction_us and left_events.size:
-            left_events = left_events.copy(); left_events["timestamp"] += left_correction_us
+            left_events = corrected_event_times(left_events,left_correction_us)
         if right_correction_us and right_events.size:
-            right_events = right_events.copy(); right_events["timestamp"] += right_correction_us
+            right_events = corrected_event_times(right_events,right_correction_us)
+        # A seek/decode anomaly must not be interpreted as physical motion.
+        for batch in (left_events,right_events):
+            times=checked_event_times(batch)
+            if len(times) and (times[0]<cursor-step_us or times[-1]>=cursor):
+                raise ValueError('SDK batch outside requested half-open time interval')
         if cursor >= output_start:
             yield cursor, left_events, right_events
 
@@ -391,6 +418,7 @@ def synchronized_windows(
     range_start_us: Optional[int] = None,
     range_end_us: Optional[int] = None,
 ) -> Iterator[Tuple[int, np.ndarray, np.ndarray]]:
+    if window_us<=0 or step_us<=0:raise ValueError('positive window and step required')
     start = max(left.info.start_us + left_correction_us, right.info.start_us + right_correction_us)
     end = min(left.info.end_us + left_correction_us, right.info.end_us + right_correction_us)
     if range_start_us is not None:
@@ -408,15 +436,18 @@ def synchronized_windows(
             left_buffer = np.concatenate((left_buffer, left.next_duration(step_us)))
             right_buffer = np.concatenate((right_buffer, right.next_duration(step_us)))
         first = False
+        checked_event_times(left_buffer)
+        checked_event_times(right_buffer)
         left_start, right_start = cursor - left_correction_us, cursor - right_correction_us
         left_stop, right_stop = left_start + window_us, right_start + window_us
-        left_buffer = left_buffer[(left_buffer["timestamp"] >= left_start) & (left_buffer["timestamp"] <= left_stop)]
-        right_buffer = right_buffer[(right_buffer["timestamp"] >= right_start) & (right_buffer["timestamp"] <= right_stop)]
+        left_buffer=left_buffer[left_buffer['timestamp']>=left_start]
+        right_buffer=right_buffer[right_buffer['timestamp']>=right_start]
         # 输出统一时钟域，后续 SAE 和双目窗口不需要知道各自修正量。
-        left_events, right_events = left_buffer, right_buffer
+        left_events=left_buffer[left_buffer['timestamp']<left_stop]
+        right_events=right_buffer[right_buffer['timestamp']<right_stop]
         if left_correction_us and left_events.size:
-            left_events = left_events.copy(); left_events["timestamp"] += left_correction_us
+            left_events = corrected_event_times(left_events,left_correction_us)
         if right_correction_us and right_events.size:
-            right_events = right_events.copy(); right_events["timestamp"] += right_correction_us
+            right_events = corrected_event_times(right_events,right_correction_us)
         yield cursor + window_us, left_events, right_events
         cursor += step_us

@@ -140,13 +140,13 @@ def build_sync_review(dataset, output):
     write_csv(output/'crop_availability.csv',availability_all)
     write_csv(output/'clip_summary.csv',summaries)
     write_csv(output/'reference_frame_pairs.csv',reference_pairs)
-    report={'status':'exported_timestamp_pairing_checked_hardware_sync_pending_raw', 'serves':summaries,
+    report={'status':'exported_timestamp_pairing_checked_physical_sync_unverified', 'serves':summaries,
             'union_frames':len(availability_all),'shared_frames':len(pairs_all),
             'single_crop_frames':len(availability_all)-len(pairs_all),'all_exact_pair_timestamp_deltas_us':0,
-            'physical_camera_synchronization_verified':False,'ball_raw_upload_pending':True,
+            'physical_camera_synchronization_verified':False,'raw_recording_inspected_by_this_stage':False,
             'reference_video_times_source':'metadata.video_first_us + frame_index * video_step_us',
             'reference_labels_independently_verified':False,
-            'interpretation':'Missing exported crop is not evidence that the original camera did not see a ball. Original references can also have one view without a visible ball; physical time offset versus field-of-view geometry requires ball RAW verification.'}
+            'interpretation':'Missing exported crop is not evidence that the original camera did not see a ball. This stage checks export labels only; RAW mapping and physical clock synchronization require separate evidence.'}
     if (output/'reference_timecode_report.json').is_file():
         report['reference_label_audit']=json.loads((output/'reference_timecode_report.json').read_text())
     (output/'sync_report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')

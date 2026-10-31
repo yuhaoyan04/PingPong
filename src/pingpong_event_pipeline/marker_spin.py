@@ -17,6 +17,7 @@ from PIL import Image
 
 from .spin import _rotate_vectors, solve_constant_sphere_rotation
 from .spin_direction import describe_omega, summarize_directions
+from .rotation_weights import correspondence_weights,weighted_median
 
 
 OBSERVED_SOURCES = {"detection_high", "detection_low", "optical_flow"}
@@ -150,10 +151,13 @@ def fit_pairs(pairs, config):
     s1 = np.array([p[2]["sphere"] for p in pairs])
     dt = np.array([p[3] for p in pairs])
     threshold = float(config.get("angular_threshold_rad", .035))
+    weighting=config.get('pair_weighting','uniform')
+    weights=correspondence_weights(pairs,weighting)
     omega, inliers, rms, condition = solve_constant_sphere_rotation(
         s0, s1, dt, minimum_correspondences=minimum,
         angular_threshold_rad=threshold, hypotheses=int(config.get("hypotheses", 512)),
-        maximum_rpm=float(config.get("maximum_rpm", 12000)), seed=97)
+        maximum_rpm=float(config.get("maximum_rpm", 12000)), seed=97,
+        pair_weights=weights if weighting!='uniform' else None)
     if not np.isfinite([rms, condition, *omega]).all():
         result["rejection_reasons"] = ["robust_fit_failed"]
         return result
@@ -163,19 +167,23 @@ def fit_pairs(pairs, config):
     magnitude = float(np.linalg.norm(omega))
     rpm = magnitude * 60 / (2 * np.pi)
     fraction = float(np.mean(inliers))
+    weighted_fraction=float(np.average(inliers,weights=weights))
+    median_angle=weighted_median(angles,weights) if weighting!='uniform' else float(np.median(angles))
     # Repeated lags are correlated: counts are diagnostics, not independent trials.
     result.update(raw_fit_rpm=rpm, omega_camera_rad_s=omega.tolist(),
                   inlier_pairs=int(inliers.sum()), inlier_fraction=fraction,
+                  weighted_inlier_fraction=weighted_fraction,pair_weighting=weighting,
                   angular_rms_rad=float(rms), condition=float(condition),
                   median_all_angular_error_rad=float(np.median(angles)),
+                  weighted_median_all_angular_error_rad=median_angle,
                   median_all_reprojection_error_px=float(np.median(error_px)),
-                  inlier_reprojection_rms_px=float(np.sqrt(np.mean(error_px[inliers] ** 2))),
+                  inlier_reprojection_rms_px=float(np.sqrt(np.average(error_px[inliers] ** 2,weights=weights[inliers]))),
                   maximum_pair_dt_us=float(dt.max() * 1e6),
                   duration_us=max(p[2]["timestamp"] for p in pairs) - min(p[1]["timestamp"] for p in pairs))
     checks = {
-        "low_inlier_fraction": fraction < float(config.get("minimum_inlier_fraction", .70)),
+        "low_inlier_fraction": weighted_fraction < float(config.get("minimum_inlier_fraction", .70)),
         "ill_conditioned_geometry": condition > float(config.get("maximum_condition", 15)),
-        "high_all_point_residual": np.median(angles) > threshold,
+        "high_all_point_residual": median_angle > threshold,
         "high_reprojection_error": result["inlier_reprojection_rms_px"] > float(config.get("maximum_rms_px", 3)),
         "insufficient_time_span": result["duration_us"] < int(config.get("minimum_duration_us", 2000)),
         "rotation_alias_risk": magnitude * dt.max() >= np.pi * .8,
@@ -185,12 +193,13 @@ def fit_pairs(pairs, config):
         # An unresolved axis near zero is different from missing observations.
         stationary_angles = np.arccos(np.clip(np.sum(s0 * s1, axis=1), -1, 1))
         resolution = 2 * threshold / (2 * np.pi * result["duration_us"] * 1e-6)
-        near_zero = rpm / 60 <= resolution and float(np.mean(stationary_angles <= threshold)) >= float(config.get("minimum_inlier_fraction", .70))
+        stationary_fraction=float(np.average(stationary_angles<=threshold,weights=weights))
+        near_zero = rpm / 60 <= resolution and stationary_fraction >= float(config.get("minimum_inlier_fraction", .70))
         result.update(numerically_usable=True, candidate_spin_rpm=rpm, candidate_rps=rpm / 60,
                       candidate_axis_camera=(omega / magnitude).tolist() if magnitude > 1e-8 and not near_zero else None,
                       rotation_signal="near_zero_unresolved_direction" if near_zero else "resolved_rotation_candidate",
                       near_zero_resolution_rps=resolution,
-                      stationary_inlier_fraction=float(np.mean(stationary_angles <= threshold)))
+                      stationary_inlier_fraction=stationary_fraction)
         result.update(describe_omega(np.zeros(3) if near_zero else omega))
     return result
 

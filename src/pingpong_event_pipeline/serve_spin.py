@@ -18,6 +18,7 @@ from scipy.spatial.transform import Rotation
 from .marker_spin import read_tracks, make_pairs, fit_pairs, sha256
 from .spin import _rotate_vectors, solve_constant_sphere_rotation
 from .spin_direction import describe_omega, summarize_directions
+from .rotation_weights import correspondence_weights,weighted_soft_l1,weighted_median
 
 CAMERAS = ("F3E", "F59")
 
@@ -89,6 +90,8 @@ def common_support(pairs_by_camera, minimum_span_us=2000):
 def fit_two_view(pairs_by_camera, R_F59_to_F3E, config):
     """Balanced robust finite rotation, scored in each original camera view."""
     r = proper_rotation(R_F59_to_F3E)
+    weighting=config.get('pair_weighting','uniform')
+    weighted=weighting!='uniform'
     support = common_support(pairs_by_camera, int(config.get("minimum_duration_us", 2000)))
     result = {"numerically_usable": False, "candidate_rps": None, "candidate_spin_rpm": None,
               "candidate_axis_camera": None, "spin_rpm": None, "accepted": False,
@@ -105,7 +108,8 @@ def fit_two_view(pairs_by_camera, R_F59_to_F3E, config):
         s0 = np.array([p[1]["sphere"] for p in pairs]); s1 = np.array([p[2]["sphere"] for p in pairs])
         dt = np.array([p[3] for p in pairs])
         views[camera] = dict(s0=s0 @ mapping.T, s1=s1 @ mapping.T, local_s1=s1,
-                             dt=dt, mapping=mapping, radius=np.array([p[1]["radius"] for p in pairs]), pairs=pairs)
+                             dt=dt, mapping=mapping, radius=np.array([p[1]["radius"] for p in pairs]), pairs=pairs,
+                             weights=correspondence_weights(pairs,weighting))
         solo = fit_pairs(pairs, config)
         if "omega_camera_rad_s" in solo:
             proposals.append(mapping @ np.array(solo["omega_camera_rad_s"]))
@@ -119,19 +123,22 @@ def fit_two_view(pairs_by_camera, R_F59_to_F3E, config):
     for v in views.values():
         indices = np.linspace(0, len(v["dt"]) - 1, limit, dtype=int)
         sampled.append((v["s0"][indices], v["s1"][indices], v["dt"][indices]))
+    pooled=[np.concatenate([v[k] for v in views.values()]) for k in ['s0','s1','dt']] if weighted else [np.concatenate([s[i] for s in sampled]) for i in range(3)]
+    pooled_weights=np.concatenate([v['weights']/v['weights'].sum() for v in views.values()]) if weighted else None
     omega, _, rms, _ = solve_constant_sphere_rotation(
-        *[np.concatenate([s[i] for s in sampled]) for i in range(3)],
+        *pooled,
         minimum_correspondences=int(config.get("minimum_pairs", 8)),
         angular_threshold_rad=float(config.get("angular_threshold_rad", .035)),
-        hypotheses=int(config.get("hypotheses", 512)), maximum_rpm=float(config.get("maximum_rpm", 12000)))
+        hypotheses=int(config.get("hypotheses", 512)), maximum_rpm=float(config.get("maximum_rpm", 12000)),pair_weights=pooled_weights)
     if np.isfinite(rms):
         proposals.append(omega)
     threshold = float(config.get("angular_threshold_rad", .035))
 
     def evaluate(w):
         angles = [np.arccos(np.clip(np.sum(_rotate_vectors(v["s0"], w, v["dt"]) * v["s1"], axis=1), -1, 1)) for v in views.values()]
-        fractions = [float(np.mean(a <= threshold)) for a in angles]
-        return (float(np.mean(fractions)), -float(np.mean([np.median(a) for a in angles]))), angles
+        fractions = [float(np.average(a<=threshold,weights=v['weights'])) for a,v in zip(angles,views.values())]
+        medians=[weighted_median(a,v['weights']) if weighted else float(np.median(a)) for a,v in zip(angles,views.values())]
+        return (float(np.mean(fractions)), -float(np.mean(medians))), angles
 
     omega = max(proposals, key=lambda w: evaluate(w)[0])
     for _ in range(3):
@@ -140,9 +147,10 @@ def fit_two_view(pairs_by_camera, R_F59_to_F3E, config):
         if any(np.sum(m) < 4 for m in masks):
             break
         def residual(w):
-            return np.concatenate([((_rotate_vectors(v["s0"][m], w, v["dt"][m]) - v["s1"][m]) / np.sqrt(np.sum(m))).ravel()
+            return np.concatenate([((_rotate_vectors(v["s0"][m], w, v["dt"][m]) - v["s1"][m]) / (1 if weighted else np.sqrt(np.sum(m)))).ravel()
                                    for v, m in zip(views.values(), masks)])
-        fitted = least_squares(residual, omega, loss="soft_l1", f_scale=threshold / np.sqrt(max(np.sum(m) for m in masks)), max_nfev=80).x
+        loss_weights=np.concatenate([np.repeat(v['weights'][m]/v['weights'][m].sum(),3) for v,m in zip(views.values(),masks)]) if weighted else None
+        fitted = least_squares(residual, omega, loss=weighted_soft_l1(loss_weights) if weighted else "soft_l1", f_scale=threshold if weighted else threshold / np.sqrt(max(np.sum(m) for m in masks)), max_nfev=80).x
         if evaluate(fitted)[0][0] + .05 < evaluate(omega)[0][0]:
             break
         omega = fitted
@@ -150,14 +158,15 @@ def fit_two_view(pairs_by_camera, R_F59_to_F3E, config):
     design, fractions = [], []
     for (camera, v), angular in zip(views.items(), angles):
         inliers = angular <= threshold
-        fractions.append(float(np.mean(inliers)))
+        fractions.append(float(np.average(inliers,weights=v['weights'])))
         predicted_local = _rotate_vectors(v["s0"], omega, v["dt"]) @ v["mapping"]
         px = np.linalg.norm(predicted_local[:, :2] - v["local_s1"][:, :2], axis=1) * v["radius"]
         result["per_view"][camera] = {"pairs": len(angular), "inlier_pairs": int(inliers.sum()),
               "inlier_fraction": fractions[-1], "median_angular_error_rad": float(np.median(angular)),
-              "inlier_reprojection_rms_px": float(np.sqrt(np.mean(px[inliers] ** 2))) if np.any(inliers) else None}
-        for x, y, z in v["s0"][inliers]:
-            design.extend([[0, z, -y], [-z, 0, x], [y, -x, 0]])
+              "raw_pair_inlier_fraction":float(np.mean(inliers)),"pair_weighting":weighting,
+              "inlier_reprojection_rms_px": float(np.sqrt(np.average(px[inliers] ** 2,weights=v['weights'][inliers]))) if np.any(inliers) else None}
+        for (x,y,z),mass in zip(v['s0'][inliers],v['weights'][inliers]):
+            design.extend((np.array([[0,z,-y],[-z,0,x],[y,-x,0]])*np.sqrt(mass/v['weights'].sum() if weighted else 1)).tolist())
     condition = float(np.linalg.cond(design)) if len(design) >= 3 else None
     magnitude = float(np.linalg.norm(omega)); rps = magnitude / (2 * np.pi)
     reasons = []
@@ -175,10 +184,11 @@ def fit_two_view(pairs_by_camera, R_F59_to_F3E, config):
         reasons.append("rotation_alias_risk")
     result.update(raw_fit_rps=rps, omega_camera_rad_s=omega.tolist(), condition=condition if condition is not None and np.isfinite(condition) else None,
                   balanced_inlier_fraction=float(np.mean(fractions)), rejection_reasons=reasons,
+                  pair_weighting=weighting,
                   reference_camera="F3E", numerically_usable=not reasons)
     if not reasons:
         resolution = 2 * threshold / (2 * np.pi * support["span_us"] * 1e-6)
-        near_zero = rps <= resolution and all(float(np.mean(np.arccos(np.clip(np.sum(v["s0"] * v["s1"], axis=1), -1, 1)) <= threshold)) >= .70 for v in views.values())
+        near_zero = rps <= resolution and all(float(np.average(np.arccos(np.clip(np.sum(v["s0"] * v["s1"], axis=1), -1, 1)) <= threshold,weights=v['weights'])) >= .70 for v in views.values())
         result.update(candidate_rps=rps, candidate_spin_rpm=rps * 60,
                       candidate_axis_camera=(omega / magnitude).tolist() if magnitude > 1e-8 and not near_zero else None,
                       rotation_signal="near_zero_unresolved_direction" if near_zero else "resolved_rotation_candidate")
@@ -287,7 +297,7 @@ def analyze_serves(tracks, dataset, config, previous_report=None, orientation_pr
             "minimum_allowed_rps": 0, "physical_accuracy_validated": False, "training_raw_timing_verified": False,
             "limitations": ["Experimental relative orientation is inferred from other serves, not measured camera extrinsics.",
                             "Each target serve is excluded from its orientation fit; independent camera calibration is still needed.",
-                            "Shared manifest timestamps are assumed physical and synchronized; ball RAW timebase remains unverified.",
+                            "Manifest-to-RAW alignment must be audited separately; common timestamps alone do not prove physical camera synchronization.",
                             "Cluster centres, orthographic sphere geometry and 1 ms accumulation can bias rotation.",
                             "No cross-camera marker identity is assumed; both views constrain the shared angular velocity.",
                             "No observations is unknown, not zero spin. Near-zero spin has no resolved direction."]}

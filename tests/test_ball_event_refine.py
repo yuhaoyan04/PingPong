@@ -3,6 +3,7 @@ import pytest
 
 from pingpong_event_pipeline.ball_event_refine import robust_seed, warped_local_image, refine_track, refine_track_adaptive
 from pingpong_event_pipeline.events import EVENT_DTYPE
+from pingpong_event_pipeline.detector import HoughCircleBallDetector
 
 
 def test_warp_moves_old_events_forward_along_velocity():
@@ -38,3 +39,20 @@ def test_adaptive_empty_events_are_not_supported():
     points = np.array([[i*5000, 100+i, 200, 35] for i in range(6)], float)
     out, _ = refine_track_adaptive(np.empty(0, dtype=EVENT_DTYPE), points, step_us=5000)
     assert not out[:, 5].any()
+
+
+@pytest.mark.parametrize('refiner',[refine_track,refine_track_adaptive])
+def test_ball_refinement_rejects_time_reversal_instead_of_sorting_it(refiner):
+    points=np.array([[i*5000,100+i,200,35] for i in range(6)],float)
+    events=np.zeros(3,EVENT_DTYPE);events['timestamp']=[1000,2000,1500]
+    with pytest.raises(ValueError,match='non-monotonic'):refiner(events,points)
+
+
+@pytest.mark.parametrize('refiner',[refine_track,refine_track_adaptive])
+def test_empty_local_circle_search_keeps_explicit_unsupported_seed(refiner,monkeypatch):
+    monkeypatch.setattr(HoughCircleBallDetector,'_search_ring_candidates_near',lambda *a,**k:[])
+    points=np.array([[i*5000,100+i,200,35] for i in range(6)],float)
+    out,_=refiner(np.empty(0,EVENT_DTYPE),points,step_us=5000)
+    assert len(out)==6
+    assert not out[:,5].any()
+    np.testing.assert_allclose(out[:,1:3],out[:,6:8])

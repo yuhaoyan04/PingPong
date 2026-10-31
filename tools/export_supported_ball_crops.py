@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from pingpong_event_pipeline.events import RawWindowReader, trajectory_compensated_ball_patch
+from pingpong_event_pipeline.events import RawWindowReader, trajectory_compensated_ball_patch,checked_event_times
 from pingpong_event_pipeline.event_denoise import neighbor_filter
 from pingpong_event_pipeline.marker_enhancement import enhance_for_camera
 
@@ -70,8 +70,7 @@ def main():
         if source['raw'] not in readers: readers[source['raw']] = RawWindowReader(source['raw'])
         reader = readers[source['raw']]
         events = reader.window(int(runs[0][0, 0])-1000, int(runs[-1][-1, 0])+1)
-        events = events[np.argsort(events['timestamp'], kind='stable')]
-        event_t = events['timestamp'].astype(np.int64, copy=False)
+        event_t=checked_event_times(events)
         group = args.output/name; (group/'binary').mkdir(parents=True); (group/'polarity_reference').mkdir()
         filtering = args.denoise or profiles is not None
         if filtering: (group/'binary_unfiltered').mkdir()

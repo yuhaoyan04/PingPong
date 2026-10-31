@@ -41,7 +41,7 @@ bash scripts/pingpong.sh spin --tracks output/serve02_f3e_new/rotation_tracks_al
 
 ## 新采集到标注
 
-先检查 SDK，在有相机和图形会话的机器使用 `run capture --help`，显式指定实际 master/slave。序列号不等于固定角色。采集保存配置回读，保留测转速所需纹理。Linux SDK 已安装并通过同步测试 RAW 小窗口重放，但 SDK 当前未发现相机，真实发球 RAW 与真实空间标定仍缺失；更新状态与运动报告入口见 `PIPELINE_MOTION.md`。
+先检查 SDK，在有相机和图形会话的机器使用 `run capture --help`，显式指定实际 master/slave。序列号不等于固定角色。采集保存配置回读，保留测转速所需纹理。Linux SDK 已安装；用户上传的实际发球 RAW 已逐事件与独立 EVT3 解码核对，旧参考视频与 RAW 的时间映射也已核实。双机物理同步和真实空间标定尚未验证，见 `BALL_RAW_VALIDATION.md`。本次文件名为 master F3E、slave F59，而历史默认采集配置角色相反；新采集必须依据实际接线显式指定，不能套用角色。
 
 ```bash
 # 依据新 RAW 决定时间段、搜索 ROI 和半径，不能套历史九段时码
