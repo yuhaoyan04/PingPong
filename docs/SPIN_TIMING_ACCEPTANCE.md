@@ -2,6 +2,8 @@
 
 本轮将转速和有向旋转轴作为主要结果，球速只进行数量级核对。审核页：`output/latest_spin/acceptance/review.html`。研究范围用于校验，不参与修改拟合值；不将转速截断到“正常区间”。
 
+后续逐次发球的双视角互补与零转速修复见 [逐次发球联合建模](SERVE_TWO_VIEW_SPIN.md)，新入口为 `output/latest_serve/review.html`。下文为保留的单视角与同步测试 RAW 审计；18.81 RPS 仅为该批可用结果的最小值，允许的转速下限为 0。
+
 ## 发球参考：RPS 与 RPM 分清
 
 `RPM = RPS × 60`。发球与拉冲分开比较。

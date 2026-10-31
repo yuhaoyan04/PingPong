@@ -40,9 +40,10 @@ def describe_omega(omega, minimum_component_fraction=.15):
 
 
 def summarize_directions(windows, angle_limit_deg=15, relative_rate_limit=.20, minimum_windows=3):
+    numeric = [w for w in windows if w.get("numerically_usable")]
     usable = [w for w in windows if w.get("numerically_usable") and w.get("candidate_axis_camera") is not None]
     result = {"engineering_direction_status": "no_candidate", "engineering_stable": False,
-              "direction_windows": len(usable), "stable_windows": 0,
+              "direction_windows": len(numeric), "stable_windows": 0,
               "engineering_candidate_rps": None, "engineering_candidate_rpm": None,
               "axis_x": None, "axis_y": None, "axis_z": None,
               "front_direction_dx": None, "front_direction_dy": None,
@@ -50,8 +51,19 @@ def summarize_directions(windows, angle_limit_deg=15, relative_rate_limit=.20, m
               "world_spin_type": None, "excluded_windows": [],
               "all_windows_max_axis_deviation_deg": None, "stable_windows_max_axis_deviation_deg": None,
               "relative_rate_mad": None, "physical_accuracy_validated": False}
-    if not usable:
+    zero = [w for w in numeric if w.get("rotation_signal") == "near_zero_unresolved_direction"]
+    if zero and len(zero) >= max(minimum_windows, int(math.ceil(.6 * len(numeric)))):
+        rps = float(np.median([w["candidate_spin_rpm"] / 60 for w in zero]))
+        result.update(engineering_direction_status="near_zero_candidate", engineering_stable=True,
+                      direction_windows=len(numeric), stable_windows=len(zero),
+                      engineering_candidate_rps=rps, engineering_candidate_rpm=rps * 60)
         return result
+    if not usable:
+        if numeric:
+            result.update(engineering_direction_status="insufficient_windows" if len(numeric) < minimum_windows else "inconsistent_candidate",
+                          direction_windows=len(numeric))
+        return result
+    result["excluded_windows"].extend({"window_id": w["window_id"], "reason": "near_zero_direction_unresolved"} for w in zero)
     axes = np.array([w["candidate_axis_camera"] for w in usable], float)
     axes /= np.linalg.norm(axes, axis=1, keepdims=True)
     rates = np.array([w["candidate_spin_rpm"] / 60 for w in usable])
@@ -67,7 +79,7 @@ def summarize_directions(windows, angle_limit_deg=15, relative_rate_limit=.20, m
                                            "angle_to_medoid_deg": float(angle[i]),
                                            "relative_rate_difference": float(relative[i]),
                                            "reason": "temporal_direction_or_rate_outlier"})
-    required = max(minimum_windows, int(math.ceil(.6 * len(usable))))
+    required = max(minimum_windows, int(math.ceil(.6 * len(numeric))))
     stable = int(selected.sum()) >= required
     result.update(engineering_direction_status="stable_candidate" if stable else
                   ("insufficient_windows" if len(usable) < minimum_windows else "inconsistent_candidate"),

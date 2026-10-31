@@ -46,6 +46,22 @@ def test_finite_motion_recovers_camera_angular_velocity_without_physical_promoti
     assert fit["accepted"] is False
 
 
+@pytest.mark.parametrize("rps", [0., .05, .5, 1., 5.])
+def test_no_spin_and_weak_spin_have_no_positive_floor(rps):
+    fit = fit_pairs(synthetic_pairs(omega=(rps * 2 * np.pi, 0., 0.)), CFG)
+    assert fit["numerically_usable"]
+    assert fit["candidate_rps"] == pytest.approx(rps, abs=1e-6)
+    if rps <= .5:
+        assert fit["rotation_signal"] == "near_zero_unresolved_direction"
+        assert fit["candidate_axis_camera"] is None
+
+
+def test_missing_observations_are_not_classified_as_no_spin():
+    result = fit_pairs([], CFG)
+    assert not result["numerically_usable"]
+    assert result["candidate_rps"] is None
+
+
 def test_timestamp_scale_changes_spin_inversely():
     pairs = synthetic_pairs()
     a = fit_pairs(pairs, CFG)

@@ -327,6 +327,15 @@ def _score_omega_candidates_kernel(s0, s1, dt, omegas, cosine_threshold):
         wx, wy, wz = omegas[h, 0], omegas[h, 1], omegas[h, 2]
         magnitude = np.sqrt(wx * wx + wy * wy + wz * wz)
         if magnitude < 1e-12:
+            # Identity rotation is a real hypothesis for no-spin serves.
+            total = 0.0; count = 0
+            for i in range(len(s0)):
+                value = s0[i, 0] * s1[i, 0] + s0[i, 1] * s1[i, 1] + s0[i, 2] * s1[i, 2]
+                if value >= cosine_threshold:
+                    count += 1; total += value
+            counts[h] = count
+            if count:
+                mean_cosine[h] = total / count
             continue
         ax, ay, az = wx / magnitude, wy / magnitude, wz / magnitude
         total = 0.0; count = 0
@@ -385,7 +394,7 @@ def solve_constant_sphere_rotation(
         evaluation = np.sort(rng.choice(count, ransac_evaluation_limit, replace=False))
     else:
         evaluation = np.arange(count)
-    hypotheses_omega = []
+    hypotheses_omega = [np.zeros(3)]
     cosine_threshold = float(np.cos(angular_threshold_rad))
     sample_size = min(2, count)
     for _ in range(hypotheses):

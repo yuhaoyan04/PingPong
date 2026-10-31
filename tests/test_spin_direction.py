@@ -48,6 +48,24 @@ def test_one_or_two_windows_do_not_establish_direction_stability():
         assert result["engineering_candidate_rps"] is None
 
 
+def test_supported_near_zero_has_no_arbitrary_rotation_axis():
+    rows = [{**window(i, rps=0), "candidate_axis_camera": None,
+             "rotation_signal": "near_zero_unresolved_direction"} for i in range(3)]
+    result = summarize_directions(rows)
+    assert result["engineering_direction_status"] == "near_zero_candidate"
+    assert result["engineering_candidate_rps"] == 0
+    assert result["axis_x"] is None
+    assert summarize_directions([])["engineering_candidate_rps"] is None
+
+
+def test_mixed_zero_and_rotating_windows_do_not_form_a_false_direction_majority():
+    zero = [{**window(i, rps=0), "candidate_axis_camera": None,
+             "rotation_signal": "near_zero_unresolved_direction"} for i in range(4)]
+    rotating = [window(i+4) for i in range(4)]
+    result = summarize_directions(zero + rotating)
+    assert not result['engineering_stable'] and result['direction_windows'] == 8
+
+
 def test_sport_labels_require_explicit_reference_frame_and_correct_cross_product():
     forward, up = [0, 1, 0], [0, 0, 1]
     assert classify_in_reference([-1, 0, 0], forward, up)["world_spin_type"] == "topspin"

@@ -39,7 +39,8 @@ SOURCES = [
 LABELS = {"up": "↑ 上", "down": "↓ 下", "left": "← 左", "right": "→ 右",
           "up_left": "↖ 左上", "up_right": "↗ 右上", "down_left": "↙ 左下", "down_right": "↘ 右下", "unresolved": "未确定"}
 STATUSES = {"stable_candidate": "方向与转速自洽", "insufficient_windows": "窗口不足",
-            "inconsistent_candidate": "方向/转速变化需复核", "no_candidate": "无可用候选"}
+            "inconsistent_candidate": "方向/转速变化需复核", "no_candidate": "无可用候选",
+            "near_zero_candidate": "接近不转，方向未分辨"}
 
 
 def build_acceptance(spin_path, motion_csv, timing_paths, output, orientation_profile=None):
@@ -62,11 +63,11 @@ def build_acceptance(spin_path, motion_csv, timing_paths, output, orientation_pr
         excluded = {r["window_id"] for r in summary["excluded_windows"]}
         for w in windows:
             row = dict(w)
-            if w["numerically_usable"]:
+            if w["numerically_usable"] and w.get("rotation_signal") != "near_zero_unresolved_direction":
                 row.update(describe_omega(w["omega_camera_rad_s"]))
             row["temporal_outlier_for_group_consensus"] = w["window_id"] in excluded
             detailed.append(row)
-        if orientation and summary["engineering_stable"]:
+        if orientation and summary["engineering_stable"] and summary["axis_x"] is not None:
             rotation = np.asarray(orientation["camera_to_reference"][original["camera"]], float)
             if rotation.shape != (3, 3) or not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-6) or not np.isclose(np.linalg.det(rotation), 1):
                 raise ValueError("camera_to_reference must be a measured proper rotation")
@@ -130,6 +131,7 @@ def _plots(report, output):
                         fmt="o", color="tab:green" if r["engineering_stable"] else "tab:orange", capsize=4)
         ax.set(yticks=range(len(rows)), yticklabels=[r["group"] for r in rows], xlabel="Original window range / median spin (rps)", title=f"{camera} | no clipping to reference ranges")
         ax.grid(alpha=.2); ax.legend(fontsize=7, loc="lower right")
+        ax.set_xlim(left=0)
     fig.savefig(output / "spin_reference_comparison.png", dpi=150); plt.close(fig)
     fig, axes = plt.subplots(2, 7, figsize=(15, 5.3), constrained_layout=True)
     for row, camera in enumerate(["F3E", "F59"]):
@@ -143,7 +145,7 @@ def _plots(report, output):
                 axis = f'axis ({group["axis_x"]:+.2f}, {group["axis_y"]:+.2f}, {group["axis_z"]:+.2f})'
                 ax.set_xlabel(axis, fontsize=7)
             else:
-                ax.text(0, 0, "not stable /\ninsufficient", ha="center", fontsize=8)
+                ax.text(0, 0, "near-zero /\naxis unresolved" if group["engineering_direction_status"] == "near_zero_candidate" else "not stable /\ninsufficient", ha="center", fontsize=8)
             ax.set(title=group["group"], xlim=(-1.2,1.2), ylim=(-1.2,1.2), xticks=[], yticks=[])
             ax.set_aspect("equal")
     fig.suptitle("Visible front-centre motion arrows in each camera view (NOT world top/back/side labels)")

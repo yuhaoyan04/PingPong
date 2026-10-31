@@ -168,9 +168,16 @@ def fit_pairs(pairs, config):
     }
     result["rejection_reasons"] = [name for name, failed in checks.items() if failed]
     if not result["rejection_reasons"]:
+        # An unresolved axis near zero is different from missing observations.
+        stationary_angles = np.arccos(np.clip(np.sum(s0 * s1, axis=1), -1, 1))
+        resolution = 2 * threshold / (2 * np.pi * result["duration_us"] * 1e-6)
+        near_zero = rpm / 60 <= resolution and float(np.mean(stationary_angles <= threshold)) >= float(config.get("minimum_inlier_fraction", .70))
         result.update(numerically_usable=True, candidate_spin_rpm=rpm, candidate_rps=rpm / 60,
-                      candidate_axis_camera=(omega / magnitude).tolist() if magnitude > 1e-8 else None)
-        result.update(describe_omega(omega))
+                      candidate_axis_camera=(omega / magnitude).tolist() if magnitude > 1e-8 and not near_zero else None,
+                      rotation_signal="near_zero_unresolved_direction" if near_zero else "resolved_rotation_candidate",
+                      near_zero_resolution_rps=resolution,
+                      stationary_inlier_fraction=float(np.mean(stationary_angles <= threshold)))
+        result.update(describe_omega(np.zeros(3) if near_zero else omega))
     return result
 
 
@@ -239,6 +246,7 @@ def write_outputs(report, output):
               "pairs", "unique_observations", "segments", "inlier_fraction", "condition",
               "inlier_reprojection_rms_px", "rejection_reasons"]
     fields += ["axis_x", "axis_y", "axis_z", "front_direction_dx", "front_direction_dy", "front_motion_label", "image_z_spin_sense", "world_spin_type"]
+    fields += ["rotation_signal", "near_zero_resolution_rps", "stationary_inlier_fraction"]
     with (output / "spin_windows.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()

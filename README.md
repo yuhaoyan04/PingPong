@@ -6,6 +6,9 @@
 
 ## 审核与运行
 
+- [逐次发球双视角联合审核](output/latest_serve/review.html)：共享转速模型、同步视频、逐组失败原因与单视角回退。
+- [双视角审核下载包](output/latest_serve/serve_review_bundle.zip)；[零转速与联合建模说明](docs/SERVE_TWO_VIEW_SPIN.md)。
+
 - [转速、方向与逐事件时间优先审核](output/latest_spin/acceptance/review.html)：文献对照、有向轴与方向稳定性、全量事件间隔。
 - [转速与逐事件时间审核包](output/latest_spin/spin_review_bundle.zip)：解压后打开 `acceptance/review.html`，含全量事件间隔 NPZ。
 - [转速与时间验收说明](docs/SPIN_TIMING_ACCEPTANCE.md)。

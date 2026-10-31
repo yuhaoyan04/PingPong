@@ -21,6 +21,7 @@ STAGES = {
     "sdk-audit": "tools/audit_camera_runtime.py",
     "event-timing": "tools/audit_event_timing.py",
     "spin-check": "tools/review_spin_acceptance.py",
+    "serve-spin": "tools/review_serve_spin.py",
     "capture": "tools/dual_capture_isolated.py",
     "camera-tune": "tools/dual_camera_tuner.py",
     "calibration-capture": "tools/manual_calibration_capture.py",
