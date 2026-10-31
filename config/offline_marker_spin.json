@@ -11,5 +11,6 @@
   "maximum_condition": 15,
   "maximum_rms_px": 3,
   "maximum_rpm": 12000,
-  "hypotheses": 512
+  "hypotheses": 512,
+  "trajectory_smoothing": {"enabled": true}
 }

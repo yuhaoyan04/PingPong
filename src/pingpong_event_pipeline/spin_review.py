@@ -17,7 +17,10 @@ from .spin import _rotate_vectors
 
 def create_review(report, tracks, dataset, output):
     output, dataset = Path(output), Path(dataset)
-    segments, _, _ = read_tracks(tracks, dataset)
+    segments, _, _ = read_tracks(tracks, dataset,smoothing_config=report['config'].get('trajectory_smoothing'))
+    from .trajectory_smoothing import csv_rows
+    from .motion import write_csv
+    write_csv(output/'effective_rotation_tracks.csv',csv_rows(segments))
     fig, axes = plt.subplots(2, 1, figsize=(11, 7), constrained_layout=True)
     for ax, camera in zip(axes, ("F3E", "F59")):
         groups = sorted({w["group"] for w in report["windows"] if w["camera"] == camera})

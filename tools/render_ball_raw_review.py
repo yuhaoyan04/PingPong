@@ -42,8 +42,11 @@ def build(dataset, output, cache, radius, tracks):
     for part in ['full_view', 'tracking_spin', 'posters']:
         (output / part).mkdir(parents=True, exist_ok=True)
     overlays = {s['serve']: s for s in json.loads((radius / 'frame_overlays.json').read_text())['serves']}
-    with Path(tracks).open(encoding='utf-8-sig') as stream:
-        track_rows = list(csv.DictReader(stream))
+    from pingpong_event_pipeline.marker_spin import read_tracks
+    from pingpong_event_pipeline.trajectory_smoothing import csv_rows
+    baseline=json.loads((radius/'r100/serve_spin_report.json').read_text())
+    effective,_,_=read_tracks(tracks,dataset,smoothing_config=baseline['config'].get('trajectory_smoothing'))
+    track_rows=csv_rows(effective)
     points = defaultdict(list); segments = defaultdict(list)
     for row in track_rows:
         points[(row['group'], int(row['timestamp_us']))].append(row)

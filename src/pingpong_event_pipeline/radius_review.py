@@ -238,8 +238,11 @@ def build_radius_media(root, tracks_path, videos=True):
     serves={s["serve"]:[next(t for t in r["serves"] if t["serve"]==s["serve"]) for r in reports] for s in reports[0]["serves"]}
     for folder in ("videos","posters","previews","plots"):
         (root/folder).mkdir(exist_ok=True)
-    with Path(tracks_path).open(encoding="utf-8-sig") as stream:
-        tracks=list(csv.DictReader(stream))
+    from .marker_spin import read_tracks
+    from .trajectory_smoothing import csv_rows as effective_csv_rows
+    effective,_,_=read_tracks(tracks_path,reports[0]['dataset'],
+                               smoothing_config=reports[0]['config'].get('trajectory_smoothing'))
+    tracks=effective_csv_rows(effective)
     csv_rows=[]
     media=[]
     for name, cases in serves.items():

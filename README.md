@@ -6,6 +6,9 @@
 
 ## 审核与运行
 
+- [标记中心轨迹平滑前后对照](output/latest_smoothing/review.html)：7 段双视角视频、固定窗口转速/方向、逐帧控制、原始与平滑坐标；[下载审核包](output/latest_smoothing/smoothing_review_bundle.zip)。
+- [bbox 轨迹如何测转速、局部曲线平滑的公式与限制](docs/MARKER_TRAJECTORY_SMOOTHING.md)。新运行的转速、方向与运动可视化默认使用该平滑层，历史输出保留。
+
 - [实际发球 RAW、轨迹与转速审核](output/latest_sync/review.html)：14 段新视频，完整双路视野、标记轨迹、四种半径下的转速与方向、逐帧控制；[下载审核包](output/latest_sync/raw_review_bundle.zip)。
 - [纹理重复周期交叉检查](output/latest_sync/appearance/review.html)：不使用 YOLO 簇 ID 或球面拟合半径参数，保留重复分支歧义；[RAW 核验说明](docs/BALL_RAW_VALIDATION.md)。
 - [RAW 球边界上的四种半径对照](output/latest_sync/raw_radii/review.html)：同一原图、同一球心，直接审核假设半径与对应转速。

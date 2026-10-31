@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "half_window_us": 1500,
+  "minimum_samples": 7,
+  "degree": 3,
+  "iterations": 8,
+  "noise_floor_px": 0.5,
+  "huber_k": 1.5,
+  "shape_log_sigma": 0.4,
+  "maximum_correction_px": 8.0
+}

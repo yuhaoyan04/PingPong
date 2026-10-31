@@ -188,7 +188,8 @@ def fit_two_view(pairs_by_camera, R_F59_to_F3E, config):
 
 def analyze_serves(tracks, dataset, config, previous_report=None, orientation_profile=None,
                    radius_multiplier=1.0, fixed_relative_orientations=None):
-    segments, sources, count = read_tracks(tracks, dataset, int(config.get("max_gap_us", 750)), radius_multiplier)
+    segments, sources, count = read_tracks(tracks, dataset, int(config.get("max_gap_us", 750)), radius_multiplier,
+                                          config.get('trajectory_smoothing'))
     groups = defaultdict(lambda: defaultdict(list))
     for (camera, group, segment), run in segments.items():
         groups[group.rsplit("_", 1)[0]][camera].append((segment, run))

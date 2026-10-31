@@ -26,7 +26,7 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def read_tracks(path, dataset, max_gap_us=750, sphere_radius_multiplier=1.0):
+def read_tracks(path, dataset, max_gap_us=750, sphere_radius_multiplier=1.0, smoothing_config=None):
     """Validate identities, continuity, crop geometry and manifest time alignment.
 
     Never guess a frame rate, silently join runs, or accept prediction holds.
@@ -63,7 +63,8 @@ def read_tracks(path, dataset, max_gap_us=750, sphere_radius_multiplier=1.0):
             if width != height or width != 256:
                 raise ValueError("expected square 256-pixel YOLO crops")
             groups[key] = {"metadata": metadata, "manifest": manifest,
-                           "crop_center_px": width / 2, "sphere_radius_px": width / (2 * scale) * multiplier}
+                           "crop_center_px": width / 2, "sphere_radius_px": width / (2 * scale) * multiplier,
+                           "nominal_sphere_radius_px":width/(2*scale)}
             sources[f"{camera}/{group}"] = {
                 "metadata_sha256": sha256(meta_path), "manifest_sha256": sha256(manifest_path),
                 "crop_center_px": [width / 2, height / 2], "sphere_radius_px": width / (2 * scale) * multiplier,
@@ -91,6 +92,7 @@ def read_tracks(path, dataset, max_gap_us=750, sphere_radius_multiplier=1.0):
         segments[(camera, group, segment)].append({
             **row, "frame": frame, "timestamp": timestamp, "sphere": sphere, "point": point,
             "radius": groups[key]["sphere_radius_px"],
+            "nominal_radius":groups[key]["nominal_sphere_radius_px"],
         })
     for key, run in segments.items():
         run.sort(key=lambda row: int(row["segment_frame_offset"]))
@@ -101,6 +103,11 @@ def read_tracks(path, dataset, max_gap_us=750, sphere_radius_multiplier=1.0):
         for a, b in zip(run, run[1:]):
             if b["frame"] != a["frame"] + 1 or not 0 < b["timestamp"] - a["timestamp"] <= max_gap_us:
                 raise ValueError("nonconsecutive segment / invalid timestamp gap")
+    if smoothing_config and smoothing_config.get('enabled',True):
+        from .trajectory_smoothing import smooth_run
+        for key,run in segments.items():
+            segments[key],diagnostic=smooth_run(run,smoothing_config)
+            sources[f'{key[0]}/{key[1]}'].setdefault('trajectory_smoothing',{})[key[2]]=diagnostic
     return segments, sources, len(rows)
 
 
@@ -189,7 +196,8 @@ def fit_pairs(pairs, config):
 
 
 def estimate_tracks(tracks, dataset, config):
-    segments, sources, count = read_tracks(tracks, dataset, int(config.get("max_gap_us", 750)))
+    segments, sources, count = read_tracks(tracks, dataset, int(config.get("max_gap_us", 750)),
+                                          smoothing_config=config.get('trajectory_smoothing'))
     groups = defaultdict(list)
     for (camera, group, segment), run in segments.items():
         groups[(camera, group)].append((segment, run))

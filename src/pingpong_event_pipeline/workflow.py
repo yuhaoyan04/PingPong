@@ -30,6 +30,7 @@ STAGES = {
     "event-clock-runs": "tools/export_event_clock_runs.py",
     "appearance-period": "tools/review_appearance_period.py",
     "raw-radius-review": "tools/review_raw_ball_radii.py",
+    "smooth-tracks": "tools/review_track_smoothing.py",
     "capture": "tools/dual_capture_isolated.py",
     "camera-tune": "tools/dual_camera_tuner.py",
     "calibration-capture": "tools/manual_calibration_capture.py",

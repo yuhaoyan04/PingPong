@@ -175,7 +175,11 @@ def paired_media(serve, tracks, dataset, output, videos=True):
 def write_review(report, tracks_path, output, videos=True, reuse_media=False):
     output=Path(output); output.mkdir(parents=True,exist_ok=True)
     for name in ['plots','paired_frames','videos']: (output/name).mkdir(exist_ok=True)
-    with Path(tracks_path).open(encoding='utf-8-sig') as stream: tracks=list(csv.DictReader(stream))
+    from .marker_spin import read_tracks
+    from .trajectory_smoothing import csv_rows
+    effective,_,_=read_tracks(tracks_path,report['dataset'],smoothing_config=report['config'].get('trajectory_smoothing'))
+    tracks=csv_rows(effective)
+    write_csv(output/'effective_rotation_tracks.csv',tracks)
     summary_rows,window_rows=[],[]
     for serve in report['serves']:
         serve['conclusion']=conclusion(serve); serve['diagnostic_text']=diagnostic_text(serve)

@@ -153,8 +153,9 @@ def build_report(dataset, tracking, spin_report, output, ball_diameter_m=.040,
                  calibration=None, master_camera=None, slave_offset_us=0, videos=True, runtime_report=None):
     dataset, tracking, spin_report, output = map(Path, (dataset, tracking, spin_report, output))
     # Validate the scientific-export boundary before any coordinate conversion.
-    _, _, count = read_tracks(tracking / "rotation_tracks_all.csv", dataset)
     spin = json.loads(spin_report.read_text(encoding="utf-8"))
+    effective,_,count=read_tracks(tracking/'rotation_tracks_all.csv',dataset,
+                                   smoothing_config=spin['config'].get('trajectory_smoothing'))
     if spin["input_tracks_sha256"] != sha256(tracking / "rotation_tracks_all.csv"):
         raise ValueError("spin report and tracking export are from different runs")
     rows, groups = ball_motion(dataset, ball_diameter_m)
@@ -165,8 +166,8 @@ def build_report(dataset, tracking, spin_report, output, ball_diameter_m=.040,
     rows = [r for r in rows if (r["camera"], r["group"]) in processed]
     groups = [r for r in groups if (r["camera"], r["group"]) in processed]
     output.mkdir(parents=True, exist_ok=False)
-    with (tracking / "rotation_tracks_all.csv").open(encoding="utf-8-sig", newline="") as stream:
-        markers = list(csv.DictReader(stream))
+    from .trajectory_smoothing import csv_rows
+    markers=csv_rows(effective)
     ball_index = {(r["camera"], r["group"], r["timestamp_us"]): r for r in rows}
     marker_groups = defaultdict(list)
     projected_markers = []
