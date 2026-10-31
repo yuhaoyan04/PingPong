@@ -6,6 +6,8 @@
 
 ## 审核与运行
 
+- [双视角时间与裁剪范围审核](output/latest_sync/review.html)：原双路全视野、严格同时间戳的共同裁剪；[同步审计说明](docs/CLIP_SYNC_AUDIT.md)。
+
 - [逐帧转速、方向与四种球半径对照](output/latest_radius/review.html)：同步数值、方向箭头、逐帧暂停与单格放大。
 - [半径对照视频审核包](output/latest_radius/radius_review_bundle.zip)；[显示规则与半径说明](docs/RADIUS_VIDEO_REVIEW.md)。
 

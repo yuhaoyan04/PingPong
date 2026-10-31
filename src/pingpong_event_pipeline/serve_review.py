@@ -147,7 +147,7 @@ def paired_media(serve, tracks, dataset, output, videos=True):
                 draw.text((x,390),detail,font=font(13),fill='#d8e7f4')
                 draw.text((x,410),row['track_support'],font=font(13),fill='#a9bed1' if row['track_support']=='ring_supported' else '#ffaa80')
             else:
-                draw.text((x+40,185),'No source frame in this view',font=font(16),fill='#b3bdc7')
+                draw.text((x+25,185),'No exported crop at this time',font=font(16),fill='#b3bdc7')
             label=camera
             if fit:
                 omega=np.array(fit['omega_camera_rad_s'])
@@ -214,7 +214,7 @@ def write_review(report, tracks_path, output, videos=True, reuse_media=False):
         name=serve['serve']; page+=f'<section class="card" data-serve="{name}"><h2>{name}：{serve["conclusion"]["text"]}</h2>'
         page+=''.join('<p>'+html.escape(t)+'</p>' for t in serve['diagnostic_text'])
         if serve['media']['video_generated']:
-            page+=f'<video controls preload="metadata" poster="paired_frames/{name}.png" src="videos/{name}.mp4"></video><p>双视角按源时间戳对齐；25 FPS 为慢放。黑面板表示该时刻该视角没有原图，未复用上一帧。彩色短线为同一连续段内已观测的轨迹，轨迹编号只在各相机内部有效。</p>'
+            page+=f'<video controls preload="metadata" poster="paired_frames/{name}.png" src="videos/{name}.mp4"></video><p>双视角按导出时间戳对齐；25 FPS 为慢放。黑面板表示没有导出该时刻的球裁剪，不能推断原相机中没有球。彩色短线为同一连续段内已观测的轨迹，轨迹编号只在各相机内部有效。物理时钟同步另需原始数据核验。</p>'
         else: page+=f'<img src="paired_frames/{name}.png">'
         page+=f'<img src="plots/{name}.png"><p>双视角拒绝原因：'+html.escape('；'.join(f'{REASONS.get(k,k)} {n} 窗' for k,n in serve['joint_rejections'].items()))+'</p>'
         alternatives=serve['conclusion'].get('single_view_alternatives',[])

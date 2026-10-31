@@ -192,7 +192,7 @@ def render_panel(images, frame_rows, marker_rows, marker_runs, value, serve, rad
             draw.text((x, 505), f"帧 {row['frame_index']} | 已观测点 {len(marker_rows[camera])}", font=font(16), fill="#becfdd")
         else:
             draw.rectangle((x,y,x+320,y+320), fill="#172331")
-            draw.text((x+35,y+140), "此时刻无原始图像", font=font(21), fill="#9caabb")
+            draw.text((x+17,y+140), "未导出此时刻球裁剪", font=font(21), fill="#9caabb")
         d = value["directions"].get(camera)
         arrow(draw, (x+394, 326), d, fill)
         draw.text((x+350, 385), LABELS[d["front_motion_label"]] if d else "未确定", font=font(17), fill=fill)
