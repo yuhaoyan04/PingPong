@@ -198,6 +198,7 @@ def finalize_exports(output,dataset):
     root=Path(__file__).resolve().parents[1];smoothing=load(root/'config/marker_trajectory_smoothing.json')
     variants=[]
     for mode in ['marker_only','geometry_only','combined']:
+        if not (output/'tracks'/f'{mode}_all_observations.csv').is_file():continue
         records=rows(output/'tracks'/f'{mode}_all_observations.csv')
         data=dataset if mode=='marker_only' else output/'dataset'
         if mode!='marker_only':
@@ -221,7 +222,7 @@ def finalize_exports(output,dataset):
     return variants
 
 
-def build(dataset,cache,output,groups=None,measurements_from=None,geometry_model='continuous_bridge'):
+def build(dataset,cache,output,groups=None,measurements_from=None,geometry_model='continuous_bridge',include_marker_only=False):
     dataset,cache,output=map(lambda p:Path(p).resolve(),[dataset,cache,output])
     output.mkdir(parents=True,exist_ok=False)
     root=Path(__file__).resolve().parents[1]
@@ -301,9 +302,11 @@ def build(dataset,cache,output,groups=None,measurements_from=None,geometry_model
                 'source_manifest_sha256':sha256(folder/'manifest.csv'),'original_circles':original.tolist(),
                 'effective_circles':geometry.tolist(),'frames':results,'source_reconstruction_ious':reconstruction})
             selected=[r for r in raw if r['group']==name]
-            marker,diagnostic=localize_group(selected,folder)
-            variant_rows['marker_only'].extend(marker)
-            dump(output/'localization'/f'{name}_marker_only.json',diagnostic)
+            marker=[]
+            if include_marker_only:
+                marker,diagnostic=localize_group(selected,folder)
+                variant_rows['marker_only'].extend(marker)
+                dump(output/'localization'/f'{name}_marker_only.json',diagnostic)
             transformed=[transform_row(r,original[int(r['frame_index'])],geometry[int(r['frame_index'])],meta['crop_radius_scale']) for r in selected]
             for r in transformed:r['geometry_continuity_id']=int(regime[int(r['frame_index'])])
             combined,diag=localize_group(transformed,target)
@@ -319,7 +322,7 @@ def build(dataset,cache,output,groups=None,measurements_from=None,geometry_model
                 'median_center_change_sensor_px':float(np.median(np.linalg.norm(geometry[:,:2]-original[:,:2],axis=1))),
                 'maximum_center_change_sensor_px':float(np.max(np.linalg.norm(geometry[:,:2]-original[:,:2],axis=1))),
                 'median_radius_change_sensor_px':float(np.median(geometry[:,2]-original[:,2])),
-                'marker_only_refined_points':sum(r['center_registration_applied'] for r in marker),
+                **({'marker_only_refined_points':sum(r['center_registration_applied'] for r in marker)} if include_marker_only else {}),
                 'combined_refined_points':sum(r['center_registration_applied'] for r in combined)})
             dump(output/'group_summary.json',summary)
             print(name,summary[-1],flush=True)
@@ -345,4 +348,5 @@ if __name__=='__main__':
     p.add_argument('--output',type=Path,required=True);p.add_argument('--groups',nargs='*')
     p.add_argument('--measurements-from',type=Path,help='Reuse RAW circle fits after source-manifest/seed checks; rechecks crop reconstruction')
     p.add_argument('--geometry-model',choices=['continuous_bridge','continuous_strict','framewise'],default='continuous_bridge')
-    a=p.parse_args();build(a.dataset,a.cache,a.output,a.groups,a.measurements_from,a.geometry_model)
+    p.add_argument('--include-marker-only',action='store_true',help='Optional development ablation; omitted from the retained three-result review')
+    a=p.parse_args();build(a.dataset,a.cache,a.output,a.groups,a.measurements_from,a.geometry_model,a.include_marker_only)

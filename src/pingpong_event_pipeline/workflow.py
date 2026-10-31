@@ -35,7 +35,7 @@ STAGES = {
     "system-audit": "tools/audit_system_iteration.py",
     "system-review": "tools/render_system_iteration.py",
     "refine-observations": "tools/refine_observations.py",
-    "review-observations": "tools/review_observation_refinement.py",
+    "review-observations": "tools/review_spin_direction.py",
     "capture": "tools/dual_capture_isolated.py",
     "camera-tune": "tools/dual_camera_tuner.py",
     "calibration-capture": "tools/manual_calibration_capture.py",

@@ -1,6 +1,6 @@
 # 标记中心定位、球心与半径改进
 
-审核入口：`output/latest_observations/review.html`。本轮最终候选在 `output/observation_refinement_v14/`，包含七段四列视频、十四组 RAW 边界图、逐观测坐标与诊断、三组重新求解的转速结果，以及重建图像的纹理周期检查。四列分别是原版、只改标记中心、只改球几何、两步组合。
+审核入口：`output/latest_observations/review.html`。最新结果在 `output/spin_direction_review_v15/`，七段视频仅保留原版、球心与半径优化、两步组合三列，各自展示两路独立转速和系统总转速。局部方向修复与来源说明见 [方向审核说明](SPIN_DIRECTION_REVIEW.md)。`output/observation_refinement_v14/` 仅保留两组优化的重建输入缓存；下文独立标记中心消融的数字为历史诊断，其结果文件已按要求清理。
 
 原始数据包、人工标注、两个 YOLO 生产模型、历史转速结果均保留。本轮改进已做成可运行环节，暂未替换默认生产观测；仍需人工审核及独立物理真值验证。
 
@@ -73,7 +73,7 @@
 
 ```bash
 bash scripts/pingpong.sh run refine-observations --output output/observation_new
-bash scripts/pingpong.sh run review-observations --output output/observation_new
+bash scripts/pingpong.sh run review-observations --source output/observation_new --output output/spin_new
 ```
 
 默认使用实际发球 RAW 的已核验范围缓存 `/tmp/pingpong_raw_sync_cache_v9`。若缓存缺失，工具从项目 `data/master_DSP01F1FFF3E.raw`、`data/slave_DSP01F1FFF59.raw` 重建，并比较独立 EVT3 与 SDK 的范围序列；也可指定 `--cache`。这是本批既有轨迹的改进入口，新录制仍应先完成球检测与源清单。
@@ -83,13 +83,13 @@ bash scripts/pingpong.sh run review-observations --output output/observation_new
 ```bash
 bash scripts/pingpong.sh run refine-observations \
   --output output/observation_new \
-  --measurements-from output/observation_refinement_v12
+  --measurements-from output/observation_raw_measurements
 ```
 
-复用会检查原 manifest 哈希、原圆轨迹和测量参数，并重新核对 RAW 裁剪。`--geometry-model` 可选 `framewise`、`continuous_strict`、`continuous_bridge`，分别对应早期逐帧候选、严格逐帧门控连续模型、最终短缺口连续模型；默认最后一种。v12/v13 是保留的开发实验，不是默认推荐结果，也没有为它们替换历史审核入口。
+复用会检查原 manifest 哈希、原圆轨迹和测量参数，并重新核对 RAW 裁剪。`--geometry-model` 可选 `framewise`、`continuous_strict`、`continuous_bridge`，分别对应早期逐帧候选、严格逐帧门控连续模型、最终短缺口连续模型；默认最后一种。v12/v13 中间结果已清理，仅保留可复用的 RAW 圆测量。默认只生成球几何及组合两组，开发消融需要显式传入 `--include-marker-only`。
 
-主要输出：`dataset/` 为新裁剪及源清单，不复制训练标签；`tracks/` 包含全观测、合格连续段及仅平滑一次的有效 CSV；`geometry/`、`localization/` 保存接受/拒绝理由；`spin/` 保存四组报告；`frame_values.json` 对应视频每个源时间的窗口、RPS 和方向。审核包排除重建图像数据集与 RAW，保留视频、诊断、CSV、配置及审核说明。
+重建输出：`dataset/` 为新裁剪及源清单，不复制训练标签；`tracks/` 包含全观测、合格连续段及仅平滑一次的有效 CSV；`geometry/`、`localization/` 保存接受/拒绝理由。新审核目录中的 `spin/`、`tracks/` 只保留三组报告及有效轨迹；`frame_values.json` 对应视频每个源时间的独立、系统 RPS 和方向。审核包排除重建图像数据集与 RAW，保留视频、诊断、CSV、配置及审核说明。
 
 新增合成测试覆盖噪声圆、密集弧线重复、短弧/随机噪声拒绝、已知仿射形变下的中心恢复、无纹理拒绝、极性位置、短缺口连续性、边界矛盾排除、源坐标变换及几何混合窗口切段。真实数据仍以独立诊断与人工视频审核为主。
 
-本轮完整测试为 270 通过、1 跳过。七段视频共 1,343 帧均实际解码检查；Chrome 验证 54 处本地资源引用、视频尺寸与前后逐帧按钮，无运行时异常。原 RAW、范围缓存、标注图像与生产模型哈希保持不变；新几何可从保留的 RAW 圆测量复现。
+定位与几何阶段完整测试为 270 通过、1 跳过，后续方向改进阶段为 279 通过、1 跳过。最新七段视频共 1,343 帧均实际解码检查；浏览器及原输入完整性验证记录保存在最新审核目录。新几何可从保留的 RAW 圆测量复现。
