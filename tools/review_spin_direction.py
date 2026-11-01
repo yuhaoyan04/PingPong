@@ -25,7 +25,7 @@ from pingpong_event_pipeline.spin_fusion import frame_spin,time_window_id,marker
 from pingpong_event_pipeline.serve_spin import analyze_serves
 from refine_observations import load,dump
 
-MODES={'baseline':'原始结果','geometry_only':'球心与半径优化','combined':'组合优化＋追踪续接'}
+MODES={'baseline':'原始结果','geometry_only':'球心与半径优化','combined':'球几何＋标记中心优化'}
 SOURCES={'JOINT':'双视角联合','F3E':'F3E 单侧回退','F59':'F59 单侧回退',None:'暂无可靠结果'}
 
 
@@ -34,6 +34,10 @@ def prepare(root,source,output):
     variants['baseline']={'dataset':str(root/'data/server_marker_two_camera_train_v1'),
                          'tracks':str(root/'output/latest_smoothing/smoothed_rotation_tracks.csv')}
     for sub in ['tracks','spin','videos','posters','plots']:(output/sub).mkdir(parents=True,exist_ok=True)
+    if source.resolve()!=output.resolve():
+        for name in ['continuity_provenance.json','continuity_audit.json','tracking_summary.json',
+                     'serve05_diagnostics.json','continuity_timeline.csv']:
+            if (source/name).is_file():shutil.copy2(source/name,output/name)
     kept=[]
     baseline=load(root/'output/latest_smoothing/after_spin.json')
     fixed={s['serve']:{k:s[k] for k in ['R_F59_to_F3E','orientation_training_serves']} for s in baseline['serves']}
@@ -47,7 +51,8 @@ def prepare(root,source,output):
         elif mode=='baseline':dump(dst,baseline)
         else:dump(dst,analyze_serves(target,v['dataset'],baseline['config'],fixed_relative_orientations=fixed))
         assert load(dst)['tracks_sha256']==sha256(target),'spin report / tracks mismatch'
-        kept.append({'mode':mode,'label':MODES[mode],'dataset':v['dataset'],'tracks':str(target.resolve()),'tracks_sha256':sha256(target)})
+        label='组合优化＋追踪续接' if mode=='combined' and (source/'continuity_provenance.json').exists() else MODES[mode]
+        kept.append({'mode':mode,'label':label,'dataset':v['dataset'],'tracks':str(target.resolve()),'tracks_sha256':sha256(target)})
     dump(output/'variants.json',kept)
     return {v['mode']:v for v in kept}
 
@@ -164,7 +169,7 @@ def render(root,output,variants):
             draw.text((14,48),'轨迹：真实观测；青箭头：本视角模型；橙箭头：系统模型。箭头按标记所在位置投影，长度适当放大。',font=font(18),fill='#d1dfeb')
             for k,mode in enumerate(MODES):
                 x=12+k*480;v=values[i][mode];s=v['system']
-                draw.text((x,88),MODES[mode],font=font(23),fill='#efbb7c' if mode=='baseline' else '#76e8cc')
+                draw.text((x,88),variants[mode]['label'],font=font(23),fill='#efbb7c' if mode=='baseline' else '#76e8cc')
                 rate=f"系统总转速 {s['rps']:.2f} 转/秒" if s['available'] else '系统总转速 N/A'
                 draw.text((x,128),rate,font=font(27),fill='#efbb7c' if mode=='baseline' else '#76e8cc')
                 label=SOURCES[s.get('source')]
@@ -254,6 +259,9 @@ def render(root,output,variants):
 
 def page(output,videos):
     text='''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>三组结果：独立转速、总转速与局部方向</title><style>body{max-width:1450px;margin:24px auto;padding:0 16px;font:16px system-ui;line-height:1.7;color:#203244}section{background:#f0f4f8;padding:18px;margin:24px 0}video,img{max-width:100%}button{font:inherit;padding:7px;margin:5px}.note{background:#fff0ce;padding:14px}summary{cursor:pointer}</style><h1>原始、球几何优化、组合优化与续接</h1><p>只展示三组结果。每列顶部显示系统总转速，两行分别显示 F3E、F59 独立转速；总转速标明双视角联合或单侧回退。三列对齐同一源时间，优先使用同一锚定窗口；若该窗口失败，允许仍覆盖当前真实观测的有效重叠窗口，绝不按转速高低选窗。各侧和系统实际使用的窗口 ID 均写入 CSV。</p><p class="note">组合版新增有限时长的待确认轨迹、带运动初值的光流及最近真实图像恢复；仍需两个高置信命中才确认，至少连续三帧真实检测或核验光流才导出。预测保持帧不参与转速。缺少转速时，画面会说明球边界不足、连续观测不足或拟合条件不足。</p><p>青色箭头为该相机独立模型，橙色为系统模型经相机坐标变换后的局部投影。与相邻真实观测明显矛盾、运动太小或几何不可靠时隐藏箭头；箭头长度适当放大，0.5 ms 前向投影不是新增观测。</p><p><a href="spin_review_bundle.zip">下载审核包</a> · <a href="REPORT.md">检查、修复与保留范围</a> · <a href="frame_rates.csv">逐帧独立与系统转速</a> · <a href="local_direction_checks.csv">逐点方向检查</a> · <a href="direction_audit.json">方向符号审计</a></p>'''
+    if not (output/'continuity_provenance.json').exists():
+        start=text.index('<p class="note">组合版新增');end=text.index('</p>',start)+4
+        text=text[:start]+text[end:];text=text.replace('组合优化与续接','组合优化')
     for row in sorted(videos,key=lambda r:(r['serve']!='serve05',r['serve'])):
         n=row['serve'];text+=f'<section><h2>{n}</h2><video controls preload="none" poster="posters/{n}.jpg" src="{row["video"]}"></video><p><button onclick="step(this,-1)">前一帧</button><button onclick="step(this,1)">后一帧</button>500 μs 源步长，25 FPS 慢放。</p><details><summary>两视角与系统转速曲线</summary><img loading="lazy" src="plots/{n}_rates.png"></details></section>'
     text+='''<p>当前转速与有向轴仍为候选，方向为相机局部坐标；尚无独立物理同步与球桌坐标标定。无观测显示 N/A，有近零证据才显示近零转速。</p><script>function step(b,d){let v=b.closest('p').previousElementSibling;v.pause();v.currentTime=Math.max(0,Math.min(v.duration,v.currentTime+d/25));}</script></html>'''
