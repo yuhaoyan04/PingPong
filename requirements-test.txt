@@ -1,0 +1,7 @@
+# CPU-only regression environment; no camera SDK, weights or CUDA required.
+numpy==1.26.4
+scipy==1.13.1
+opencv-python==4.10.0.84
+matplotlib==3.9.2
+Pillow==10.4.0
+-e .[test,review]

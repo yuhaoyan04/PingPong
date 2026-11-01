@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "pingpong-event-pipeline"
 version = "0.1.0"
 description = "Experimental DVSLume stereo table-tennis tracking and spin pipeline"
-requires-python = ">=3.9"
+requires-python = ">=3.9,<3.13"
 dependencies = [
   "numpy>=1.24,<2.1",
   "numba>=0.60,<0.61",
@@ -20,6 +20,7 @@ dependencies = [
 camera = ["dvsense-driver==1.3.0"]
 gui = ["PyQt5>=5.15"]
 test = ["pytest>=7", "PyQt5>=5.15"]
+review = ["matplotlib>=3.9,<4"]
 yolo = ["ultralytics==8.4.192", "matplotlib>=3.9,<4", "torch==2.6.0", "torchvision==0.21.0"]
 
 [tool.setuptools.packages.find]
@@ -28,3 +29,7 @@ where = ["src"]
 [project.scripts]
 pingpong-offline = "pingpong_event_pipeline.cli:main"
 pingpong = "pingpong_event_pipeline.workflow:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "tools/yolo"]
+pythonpath = ["src", "tools", "tools/yolo"]

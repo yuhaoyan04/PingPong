@@ -18,10 +18,11 @@ from pingpong_event_pipeline.trajectory_smoothing import local_cubic,SmoothingCo
 from pingpong_event_pipeline.marker_enhancement import enhance_for_camera
 from pingpong_event_pipeline.marker_spin import read_tracks,sha256
 from pingpong_event_pipeline.motion import write_csv
+from pingpong_event_pipeline.artifacts import atomic_json
 
 
-def load(path):return json.loads(Path(path).read_text())
-def dump(path,value):Path(path).write_text(json.dumps(value,ensure_ascii=False,indent=2,allow_nan=False))
+def load(path):return json.loads(Path(path).read_text(encoding='utf-8-sig'))
+def dump(path,value):atomic_json(path,value)
 def rows(path):
     with Path(path).open(encoding='utf-8-sig',newline='') as f:return list(csv.DictReader(f))
 

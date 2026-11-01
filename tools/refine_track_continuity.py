@@ -37,20 +37,24 @@ def build(root,prior,geometry,output):
         for camera in ['F3E','F59']:
             name=f"{spec['serve']}_{camera}";folder=Path(spec['cameras'][camera]['folder'])
             manifest=spec['cameras'][camera]['rows'];target=rebuilt/'unlabeled_inference'/camera/name
-            new_manifest=rows(target/'manifest.csv');assert len(new_manifest)==len(manifest)
+            new_manifest=rows(target/'manifest.csv')
+            if len(new_manifest)!=len(manifest):raise ValueError(f'{name}: rebuilt/source manifest lengths differ')
             checkpoint=root/'experiments/two_camera_v1'/camera/'train/weights/last.pt'
             model_sha=sha256(checkpoint)
-            assert model_sha==load(checkpoint.parents[2]/'training_completion.json')['checkpoint_sha256']
+            if model_sha!=load(checkpoint.parents[2]/'training_completion.json')['checkpoint_sha256']:
+                raise ValueError(f'{camera}: checkpoint hash differs from training completion record')
             cached=root/'experiments/two_camera_v1'/camera/'qualitative'/name/'predictions.json'
             cache_summary=load(cached.parent.parent/'summary.json')
-            assert cache_summary['checkpoint_sha256']==model_sha
-            assert cache_summary['prediction_floor']<=config.continuation_confidence
+            if cache_summary['checkpoint_sha256']!=model_sha:raise ValueError(f'{name}: detector cache belongs to another checkpoint')
+            if cache_summary['prediction_floor']>config.continuation_confidence:raise ValueError(f'{name}: detector cache omits required continuation scores')
             detections={r['image']:r for r in load(cached)};hashes[str(cached.relative_to(root))]=sha256(cached)
             hashes[str(checkpoint.relative_to(root))]=model_sha
             tracker=MarkerTracker(config,BallGeometry());frames=[]
             for row in manifest:
-                entry=detections[Path(row['image']).name];assert int(row['timestamp_us'])==entry['timestamp_us']
-                image=cv2.imread(str(folder/row['image']),cv2.IMREAD_GRAYSCALE);assert image is not None
+                entry=detections[Path(row['image']).name]
+                if int(row['timestamp_us'])!=entry['timestamp_us']:raise ValueError(f'{name}/{row["image"]}: cached/source timestamps differ')
+                image=cv2.imread(str(folder/row['image']),cv2.IMREAD_GRAYSCALE)
+                if image is None:raise FileNotFoundError(folder/row['image'])
                 result=tracker.update(image,entry['detections'],int(row['timestamp_us']))
                 frames.append({'camera':camera,'group':name,'image':Path(row['image']).name,
                     'frame_index':int(row['frame_index']),'track_support':row['track_support'],**result})
@@ -64,7 +68,8 @@ def build(root,prior,geometry,output):
             transformed=[]
             for r in records:
                 i=int(r['frame_index']);old=manifest[i];new=new_manifest[i]
-                assert int(old['timestamp_us'])==int(new['timestamp_us'])==int(r['timestamp_us'])
+                if not int(old['timestamp_us'])==int(new['timestamp_us'])==int(r['timestamp_us']):
+                    raise ValueError(f'{name}: rebuilt/tracked/source timestamps differ at frame {i}')
                 keys=['center_x_px','center_y_px','radius_px']
                 mapped=transform_row(r,np.array([float(old[k]) for k in keys]),np.array([float(new[k]) for k in keys]),1.2)
                 mapped.update({k:new[k] for k in ['geometry_continuity_id','geometry_window_consistent','geometry_rotation_usable']})

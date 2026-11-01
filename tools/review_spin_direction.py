@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 from collections import Counter,defaultdict
+from contextlib import suppress
 from datetime import datetime
 import json
 from pathlib import Path
@@ -13,7 +14,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
+from PIL import Image,__version__ as pillow_version
 from pingpong_event_pipeline.marker_spin import read_tracks,sha256,make_pairs
 from pingpong_event_pipeline.spin import _rotate_vectors
 from pingpong_event_pipeline.raw_sync import load_serves
@@ -23,6 +24,7 @@ from pingpong_event_pipeline.motion import write_csv
 from pingpong_event_pipeline.motion_review import color
 from pingpong_event_pipeline.spin_fusion import frame_spin,time_window_id,marker_motion,check_motion_pair
 from pingpong_event_pipeline.serve_spin import analyze_serves
+from pingpong_event_pipeline.artifacts import atomic_path,cached_video,fingerprint
 from refine_observations import load,dump
 
 MODES={'baseline':'原始结果','geometry_only':'球心与半径优化','combined':'球几何＋标记中心优化'}
@@ -31,28 +33,42 @@ SOURCES={'JOINT':'双视角联合','F3E':'F3E 单侧回退','F59':'F59 单侧回
 
 def prepare(root,source,output):
     variants={v['mode']:v for v in load(source/'variants.json')}
-    variants['baseline']={'dataset':str(root/'data/server_marker_two_camera_train_v1'),
-                         'tracks':str(root/'output/latest_smoothing/smoothed_rotation_tracks.csv')}
+    variants.setdefault('baseline',{'dataset':str(root/'data/server_marker_two_camera_train_v1'),
+                                   'tracks':str(root/'output/latest_smoothing/smoothed_rotation_tracks.csv')})
+    for v in variants.values():
+        for key in ['dataset','tracks']:
+            path=Path(v[key]);v[key]=str(path if path.is_absolute() else (source/path).resolve())
+    baseline=load(source/'spin/baseline.json') if (source/'spin/baseline.json').exists() else load(root/'output/latest_smoothing/after_spin.json')
+    fixed={s['serve']:{k:s[k] for k in ['R_F59_to_F3E','orientation_training_serves']} for s in baseline['serves']}
+    prepared=[]
+    # Validate all source reports before replacing any cached outputs. These
+    # checks must remain enabled under python -O as well.
+    for mode in MODES:
+        v=variants[mode];tracks_hash=sha256(v['tracks']);src=source/'spin'/f'{mode}.json'
+        report=load(src) if src.exists() else (baseline if mode=='baseline' else
+            analyze_serves(v['tracks'],v['dataset'],baseline['config'],fixed_relative_orientations=fixed))
+        if report.get('tracks_sha256')!=tracks_hash:
+            raise ValueError(f'{mode}: spin report / tracks mismatch; refit the source report before rendering')
+        prepared.append((mode,v,tracks_hash,report))
     for sub in ['tracks','spin','videos','posters','plots']:(output/sub).mkdir(parents=True,exist_ok=True)
     if source.resolve()!=output.resolve():
         for name in ['continuity_provenance.json','continuity_audit.json','tracking_summary.json',
                      'serve05_diagnostics.json','continuity_timeline.csv']:
-            if (source/name).is_file():shutil.copy2(source/name,output/name)
+            if (source/name).is_file():
+                with atomic_path(output/name) as staged:shutil.copy2(source/name,staged)
+            elif (output/name).exists():(output/name).unlink()
+        if not (source/'continuity_provenance.json').exists():
+            (output/'CONTINUITY.md').unlink(missing_ok=True)
     kept=[]
-    baseline=load(root/'output/latest_smoothing/after_spin.json')
-    fixed={s['serve']:{k:s[k] for k in ['R_F59_to_F3E','orientation_training_serves']} for s in baseline['serves']}
-    for mode in MODES:
-        v=variants[mode];target=output/'tracks'/f'{mode}.csv'
-        if not target.exists():shutil.copy2(v['tracks'],target)
-        assert sha256(target)==sha256(v['tracks'])
-        src=source/'spin'/f'{mode}.json';dst=output/'spin'/f'{mode}.json'
-        if src.exists():
-            if src.resolve()!=dst.resolve():shutil.copy2(src,dst)
-        elif mode=='baseline':dump(dst,baseline)
-        else:dump(dst,analyze_serves(target,v['dataset'],baseline['config'],fixed_relative_orientations=fixed))
-        assert load(dst)['tracks_sha256']==sha256(target),'spin report / tracks mismatch'
+    for mode,v,tracks_hash,report in prepared:
+        target=output/'tracks'/f'{mode}.csv'
+        if not target.exists() or sha256(target)!=tracks_hash:
+            with atomic_path(target) as staged:
+                shutil.copy2(v['tracks'],staged)
+                if sha256(staged)!=tracks_hash:raise ValueError(f'{mode}: source tracks changed while copying')
+        dump(output/'spin'/f'{mode}.json',report)
         label='组合优化＋追踪续接' if mode=='combined' and (source/'continuity_provenance.json').exists() else MODES[mode]
-        kept.append({'mode':mode,'label':label,'dataset':v['dataset'],'tracks':str(target.resolve()),'tracks_sha256':sha256(target)})
+        kept.append({'mode':mode,'label':label,'dataset':v['dataset'],'tracks':str(target.resolve()),'tracks_sha256':tracks_hash})
     dump(output/'variants.json',kept)
     return {v['mode']:v for v in kept}
 
@@ -126,17 +142,36 @@ def marker_arrows(row,run,independent,system_local,system_resolved):
     return details
 
 
-def render(root,output,variants):
-    dataset=root/'data/server_marker_two_camera_train_v1'
+def render(root,output,variants,serves=None,force=False):
+    dataset=Path(variants['baseline']['dataset'])
     reports={mode:{s['serve']:s for s in load(output/'spin'/f'{mode}.json')['serves']} for mode in MODES}
-    points={}
+    points={};observations={}
     for mode,v in variants.items():
-        segments,_,_=read_tracks(v['tracks'],v['dataset']);points[mode]=defaultdict(list)
+        segments,_,_=read_tracks(v['tracks'],v['dataset']);points[mode]=defaultdict(list);observations[mode]=defaultdict(list)
         for (_,group,_),run in segments.items():
-            for r in run:points[mode][(group,r['timestamp'])].append((r,run))
+            for r in run:
+                points[mode][(group,r['timestamp'])].append((r,run))
+                observations[mode][group].append({'timestamp':r['timestamp'],'point':r['point'].tolist(),
+                    'sphere':r['sphere'].tolist(),'radius':r['radius'],'source':r['source'],
+                    'support':r['track_support'],'track_id':r['track_id'],'segment_id':r['segment_id']})
+    renderer_files=[Path(__file__),*(root/'src/pingpong_event_pipeline'/f'{name}.py' for name in
+        ['artifacts','spin_fusion','spin','marker_spin','radius_review','motion_review','clip_sync'])]
+    renderer={p.name:sha256(p) for p in renderer_files}
+    renderer.update(opencv=cv2.__version__,numpy=np.__version__,pillow=pillow_version)
+    face_path=Path(getattr(font(18),'path',''))
+    renderer['font_sha256']=sha256(face_path) if face_path.is_file() else str(font(18).getname())
+    image_hashes={}
+    def image_hash(path):
+        path=path.resolve()
+        if path not in image_hashes:image_hashes[path]=sha256(path)
+        return image_hashes[path]
+    specs=load_serves(dataset)
+    unknown=set(serves or [])-{s['serve'] for s in specs}
+    if unknown:raise ValueError(f'Unknown serves: {sorted(unknown)}')
     overlays=[];flat=[];direction_rows=[];validated=[]
-    for spec in load_serves(dataset):
+    for spec in specs:
         name=spec['serve'];maps={c:{int(r['timestamp_us']):r for r in spec['cameras'][c]['rows']} for c in ['F3E','F59']}
+        if serves and name not in serves:continue
         times=sorted(set(maps['F3E'])|set(maps['F59']));values=[];model_arrows=[]
         for t in times:
             wid=time_window_id(reports['baseline'][name],t)
@@ -226,17 +261,27 @@ def render(root,output,variants):
                    times[i] in maps['F3E'] and times[i] in maps['F59'],-abs(i-len(times)/2)))
         draw_frame(poster).save(output/'posters'/f'{name}.jpg',quality=94)
         path=output/'videos'/f'{name}_spin_direction.mp4'
-        if not path.exists():
-            process,log=ffmpeg_writer(path,1440,1280,25)
-            for i in range(len(times)):process.stdin.write(np.asarray(draw_frame(i)).tobytes())
-            finish(process,log)
-        cap=cv2.VideoCapture(str(path));count=0
-        while True:
-            ok,img=cap.read()
-            if not ok:break
-            assert img.shape==(1280,1440,3);count+=1
-        cap.release();assert count==len(times)
-        validated.append({'serve':name,'video':str(path.relative_to(output)),'frames':count,'all_frames_decoded':True})
+        inputs={'renderer':renderer,'timestamps_us':times,'variants':{}}
+        for mode,v in variants.items():
+            inputs['variants'][mode]={'label':v['label'],'fit':reports[mode][name],'cameras':{}}
+            for camera in ['F3E','F59']:
+                group=f'{name}_{camera}';folder=Path(v['dataset'])/'unlabeled_inference'/camera/group
+                inputs['variants'][mode]['cameras'][camera]={'observations':observations[mode][group],
+                    'manifest_sha256':sha256(folder/'manifest.csv'),'metadata_sha256':sha256(folder/'metadata.json'),
+                    'images':[(t,r['image'],image_hash(folder/r['image'])) for t,r in maps[camera].items()]}
+        def encode(staged):
+            process,log=ffmpeg_writer(staged,1440,1280,25)
+            try:
+                for i in range(len(times)):process.stdin.write(np.asarray(draw_frame(i)).tobytes())
+                finish(process,log)
+            except BaseException:
+                if process.poll() is None:process.kill();process.wait()
+                with suppress(BrokenPipeError):process.stdin.close()
+                log.close()
+                raise
+        record=cached_video(path,fingerprint(inputs),encode,frames=len(times),width=1440,height=1280,fps=25,force=force)
+        count=record['frames']
+        validated.append({'serve':name,'video':str(path.relative_to(output)),**record})
         overlays.append({'serve':name,'timestamps_us':times,'values':values})
         fig,axes=plt.subplots(3,1,figsize=(12,9),sharex=True,constrained_layout=True)
         data=[r for r in flat if r['serve']==name]
@@ -246,7 +291,7 @@ def render(root,output,variants):
                 ax.plot([(r['timestamp_us']-times[0])/1000 for r in rr],[r[field] if r[field] is not None else np.nan for r in rr],label=field,color=col,linewidth=1.4)
             ax.set(title=mode,ylabel='RPS',ylim=(0,None));ax.grid(alpha=.2);ax.legend()
         axes[-1].set_xlabel('Actual source time since first crop (ms)');fig.savefig(output/'plots'/f'{name}_rates.png',dpi=150);plt.close(fig)
-        print('Rendered / decoded',name,count,flush=True)
+        print('Reused verified video' if record['cache_hit'] else 'Rendered / decoded',name,count,flush=True)
     dump(output/'frame_values.json',overlays);write_csv(output/'frame_rates.csv',flat);write_csv(output/'local_direction_checks.csv',direction_rows)
     dump(output/'video_validation.json',validated)
     summary={'retained_modes':list(MODES),'source_counts':dict(Counter((r['mode']+'/'+str(r['system_source'])) for r in flat)),
@@ -267,26 +312,30 @@ def page(output,videos):
     text+='''<p>当前转速与有向轴仍为候选，方向为相机局部坐标；尚无独立物理同步与球桌坐标标定。无观测显示 N/A，有近零证据才显示近零转速。</p><script>function step(b,d){let v=b.closest('p').previousElementSibling;v.pause();v.currentTime=Math.max(0,Math.min(v.duration,v.currentTime+d/25));}</script></html>'''
     if (output/'serve05_diagnostics.json').exists():
         text=text.replace('<h1>', '<p><a href="CONTINUITY.md">serve05 缺失原因和追踪改进</a> · <a href="serve05_diagnostics.json">serve05 前后统计</a> · <a href="continuity_timeline.csv">覆盖时间线</a></p><h1>',1)
-    (output/'review.html').write_text(text)
+    with atomic_path(output/'review.html') as staged:staged.write_text(text,encoding='utf-8')
 
 
 def package(output):
     path=output/'spin_review_bundle.zip'
-    with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED,compresslevel=4) as z:
-        for f in sorted(output.rglob('*')):
-            if not f.is_file() or f==path:continue
-            relative=str(f.relative_to(output))
-            if relative=='review.html':z.writestr(relative,f.read_text().replace('<a href="spin_review_bundle.zip">下载审核包</a>','<span>当前为已解压的审核包</span>'))
-            else:z.write(f,relative)
+    files=[f for f in sorted(output.rglob('*')) if f.is_file() and f!=path
+           and not any(part.startswith('.') for part in f.relative_to(output).parts)]
+    with atomic_path(path) as staged:
+        with zipfile.ZipFile(staged,'w',zipfile.ZIP_DEFLATED,compresslevel=4) as z:
+            for f in files:
+                relative=str(f.relative_to(output))
+                if relative=='review.html':z.writestr(relative,f.read_text(encoding='utf-8').replace('<a href="spin_review_bundle.zip">下载审核包</a>','<span>当前为已解压的审核包</span>'))
+                else:z.write(f,relative)
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--source',type=Path,default=Path('output/latest_observations'))
     p.add_argument('--output',type=Path,default=Path('output/spin_review_'+datetime.now().strftime('%Y%m%d_%H%M%S')));p.add_argument('--package-only',action='store_true')
+    p.add_argument('--serves',nargs='+',help='Render selected serve names, e.g. serve05')
+    p.add_argument('--force-render',action='store_true',help='Re-encode even when the content cache matches')
     a=p.parse_args();root=Path(__file__).resolve().parents[1];output=a.output.resolve();output.mkdir(parents=True,exist_ok=True)
     if a.package_only:package(output);return
     variants=prepare(root,a.source.resolve(),output);direction_audit(output,variants)
-    videos=render(root,output,variants);page(output,videos)
+    videos=render(root,output,variants,a.serves,a.force_render);page(output,videos)
     shutil.copy2(root/'docs/SPIN_DIRECTION_REVIEW.md',output/'REPORT.md')
     if (output/'serve05_diagnostics.json').exists():shutil.copy2(root/'docs/TRACK_CONTINUITY.md',output/'CONTINUITY.md')
     package(output)

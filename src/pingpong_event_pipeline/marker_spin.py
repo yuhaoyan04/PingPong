@@ -7,7 +7,6 @@ Camera coordinates: x right, y down, z away; visible sphere has negative z.
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -18,13 +17,10 @@ from PIL import Image
 from .spin import _rotate_vectors, solve_constant_sphere_rotation
 from .spin_direction import describe_omega, summarize_directions
 from .rotation_weights import correspondence_weights,weighted_median
+from .artifacts import file_sha256 as sha256
 
 
 OBSERVED_SOURCES = {"detection_high", "detection_low", "optical_flow"}
-
-
-def sha256(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def read_tracks(path, dataset, max_gap_us=750, sphere_radius_multiplier=1.0, smoothing_config=None):
