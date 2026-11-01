@@ -31,6 +31,45 @@ class TrackingBehavior(unittest.TestCase):
             self.assertFalse(tracker.update(scene([(110,120,1)]),[detection(110,120,.6)],i*500)['tracks'])
         self.assertEqual(tracker.next_id,1)
 
+    def test_tentative_survives_verified_detector_gap_but_needs_second_high_hit(self):
+        tracker=MarkerTracker()
+        for i in range(5):
+            ds=[detection(100+i*2,120)] if i in (0,4) else []
+            result=tracker.update(scene([(100+i*2,120,1)]),ds,i*500)
+            if i<4:self.assertFalse(result['tracks'])
+        self.assertEqual(result['tracks'][0]['track_id'],1)
+        self.assertEqual(result['tracks'][0]['detector_hits'],2)
+        self.assertEqual(tracker.next_id,2)
+
+    def test_one_high_hit_followed_only_by_texture_never_confirms(self):
+        tracker=MarkerTracker()
+        for i in range(12):
+            result=tracker.update(scene([(100+i,120,1)]),[detection(100,120)] if i==0 else [],i*500)
+            self.assertFalse(result['tracks'])
+        self.assertFalse(tracker.tracks)
+        self.assertIn('tentative_confirmation_timeout',[r['reason'] for r in tracker.terminated])
+
+    def test_recovery_uses_last_real_image_without_filling_blank_frame(self):
+        tracker=MarkerTracker()
+        tracker.update(scene([(100,120,1)]),[detection(100,120)],0)
+        tracker.update(scene([(102,120,1)]),[detection(102,120)],500)
+        gap=tracker.update(scene([]),[],1000)
+        self.assertEqual(gap['tracks'][0]['source'],'prediction_hold')
+        result=tracker.update(scene([(106,120,1)]),[],1500)
+        self.assertEqual(result['tracks'][0]['track_id'],1)
+        self.assertEqual(result['tracks'][0]['source'],'optical_flow')
+        self.assertEqual(result['tracks'][0]['flow_method'],'last_evidence_seeded_lk')
+
+    def test_nearby_tentative_candidate_cannot_steal_established_detection(self):
+        tracker=MarkerTracker()
+        for i in range(2):
+            result=tracker.update(scene([(110+i*2,120,1)]),[detection(110+i*2,120)],i*500)
+        identity=result['tracks'][0]['track_id']
+        tracker.update(scene([(114,120,1),(145,120,2)]),[detection(114,120),detection(145,120)],1000)
+        result=tracker.update(scene([(116,120,1),(140,120,2)]),[detection(116,120)],1500)
+        observed=[t for t in result['tracks'] if t['source']=='detection_high']
+        self.assertEqual([t['track_id'] for t in observed],[identity])
+
     def test_detector_dropouts_preserve_identity_via_image_support(self):
         tracker=MarkerTracker()
         identifiers=[]; sources=[]

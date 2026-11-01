@@ -1,6 +1,6 @@
 # 标记中心定位、球心与半径改进
 
-审核入口：`output/latest_observations/review.html`。最新结果在 `output/spin_direction_review_v15/`，七段视频仅保留原版、球心与半径优化、两步组合三列，各自展示两路独立转速和系统总转速。局部方向修复与来源说明见 [方向审核说明](SPIN_DIRECTION_REVIEW.md)。`output/observation_refinement_v14/` 仅保留两组优化的重建输入缓存；下文独立标记中心消融的数字为历史诊断，其结果文件已按要求清理。
+审核入口：`output/latest_observations/review.html`。最新结果在 `output/track_continuity_v16/`，七段视频仅保留原版、球心与半径优化、两步组合三列，各自展示两路独立转速和系统总转速。组合版另加入 [追踪续接](TRACK_CONTINUITY.md)；局部方向修复与来源说明见 [方向审核说明](SPIN_DIRECTION_REVIEW.md)。`output/observation_refinement_v14/` 仅保留两组优化的重建输入缓存；下文独立标记中心消融的数字为历史诊断，其结果文件已按要求清理。
 
 原始数据包、人工标注、两个 YOLO 生产模型、历史转速结果均保留。本轮改进已做成可运行环节，暂未替换默认生产观测；仍需人工审核及独立物理真值验证。
 

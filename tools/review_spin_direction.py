@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 from collections import Counter,defaultdict
+from datetime import datetime
 import json
 from pathlib import Path
 import shutil
@@ -24,7 +25,7 @@ from pingpong_event_pipeline.spin_fusion import frame_spin,time_window_id,marker
 from pingpong_event_pipeline.serve_spin import analyze_serves
 from refine_observations import load,dump
 
-MODES={'baseline':'原始结果','geometry_only':'球心与半径优化','combined':'球几何＋标记中心优化'}
+MODES={'baseline':'原始结果','geometry_only':'球心与半径优化','combined':'组合优化＋追踪续接'}
 SOURCES={'JOINT':'双视角联合','F3E':'F3E 单侧回退','F59':'F59 单侧回退',None:'暂无可靠结果'}
 
 
@@ -139,6 +140,8 @@ def render(root,output,variants):
             for mode,value in data.items():
                 s=value['system'];flat.append({'serve':name,'mode':mode,'timestamp_us':t,'window_id':wid,
                     'F3E_rps':value['independent']['F3E']['rps'],'F59_rps':value['independent']['F59']['rps'],
+                    'F3E_window_id':value['independent']['F3E'].get('window_id'),
+                    'F59_window_id':value['independent']['F59'].get('window_id'),'system_window_id':s.get('window_id'),
                     'system_rps':s['rps'],'system_source':s.get('source'),'system_selection':s.get('selection'),
                     'warnings':';'.join(value['warnings'])})
                 per_frame[mode]={}
@@ -157,7 +160,7 @@ def render(root,output,variants):
             model_arrows.append(per_frame)
         def draw_frame(i):
             t=times[i];canvas=Image.new('RGB',(1440,1280),'#142130');draw=CachedDraw(canvas)
-            draw.text((14,8),f'{name} | 源时间 {t} μs | 三组采用同一个时间窗口',font=font(24),fill='white')
+            draw.text((14,8),f'{name} | 源时间 {t} μs | 同一源时间，允许有效重叠窗口覆盖',font=font(24),fill='white')
             draw.text((14,48),'轨迹：真实观测；青箭头：本视角模型；橙箭头：系统模型。箭头按标记所在位置投影，长度适当放大。',font=font(18),fill='#d1dfeb')
             for k,mode in enumerate(MODES):
                 x=12+k*480;v=values[i][mode];s=v['system']
@@ -200,7 +203,17 @@ def render(root,output,variants):
                     axis=mono.get('axis_camera')
                     text='本侧有向轴 '+','.join(f'{a:+.2f}' for a in axis)+f' [{camera}]' if axis else '本侧有向轴：未分辨'
                     draw.text((x,y+333),text,font=font(17),fill='#d1dfeb')
-                    view_sense(draw,(x,y+370),direction)
+                    view_sense(draw,(x,y+360),direction)
+                    here=points[mode][(f'{name}_{camera}',t)]
+                    if mono['available']:
+                        reason='有效邻窗覆盖当前观测' if mono.get('overlap_window_fallback') else '当前观测参与旋转拟合'
+                    elif not r:reason='当前源时间没有裁剪帧'
+                    elif not here:reason='无连续三帧的可用标记观测'
+                    elif all(row['track_support']!='ring_supported' for row,_ in here):reason='球边界不足；二维轨迹仍保留'
+                    else:
+                        rejects=mono.get('rejection_reasons',[])
+                        reason='支持点或时长不足' if 'insufficient_observations' in rejects or 'insufficient_time_span' in rejects else '旋转一致性或几何条件不足'
+                    draw.text((x,y+386),reason,font=font(16),fill='#a5dece' if mono['available'] else '#efd18d')
             draw.text((14,1190),'独立转速各自由该视角求解；总转速优先使用共享旋转模型，单侧回退明确标记，不取两侧数值的简单平均。',font=font(19),fill='#efd18d')
             draw.text((14,1231),'源步长 500 μs，25 FPS 慢放；缺少当前观测不沿用旧值。方向为相机坐标，双机物理同步与空间标定仍待验证。',font=font(18),fill='#d1dfeb')
             return canvas
@@ -240,10 +253,12 @@ def render(root,output,variants):
 
 
 def page(output,videos):
-    text='''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>三组结果：独立转速、总转速与局部方向</title><style>body{max-width:1450px;margin:24px auto;padding:0 16px;font:16px system-ui;line-height:1.7;color:#203244}section{background:#f0f4f8;padding:18px;margin:24px 0}video,img{max-width:100%}button{font:inherit;padding:7px;margin:5px}.note{background:#fff0ce;padding:14px}summary{cursor:pointer}</style><h1>原始、球几何优化、组合优化</h1><p>只展示三组结果。每列顶部显示系统总转速，两行分别显示 F3E、F59 独立转速；总转速标明双视角联合或单侧回退。三列锁定同一源时间窗口，不根据数值高低换窗。</p><p class="note">方向箭头现在位于实际标记位置。青色为该相机独立模型，橙色为系统模型经相机坐标变换后的投影；不再用球正前方中心的箭头代替整颗球的局部运动。与相邻真实观测明显矛盾、运动太小或几何不可靠时隐藏箭头。箭头长度仅为显示方向适当放大，0.5 ms 前向投影不是新增观测。</p><p><a href="spin_review_bundle.zip">下载审核包</a> · <a href="REPORT.md">检查、修复与保留范围</a> · <a href="frame_rates.csv">逐帧独立与系统转速</a> · <a href="local_direction_checks.csv">逐点方向检查</a> · <a href="direction_audit.json">方向符号审计</a></p>'''
-    for row in videos:
+    text='''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>三组结果：独立转速、总转速与局部方向</title><style>body{max-width:1450px;margin:24px auto;padding:0 16px;font:16px system-ui;line-height:1.7;color:#203244}section{background:#f0f4f8;padding:18px;margin:24px 0}video,img{max-width:100%}button{font:inherit;padding:7px;margin:5px}.note{background:#fff0ce;padding:14px}summary{cursor:pointer}</style><h1>原始、球几何优化、组合优化与续接</h1><p>只展示三组结果。每列顶部显示系统总转速，两行分别显示 F3E、F59 独立转速；总转速标明双视角联合或单侧回退。三列对齐同一源时间，优先使用同一锚定窗口；若该窗口失败，允许仍覆盖当前真实观测的有效重叠窗口，绝不按转速高低选窗。各侧和系统实际使用的窗口 ID 均写入 CSV。</p><p class="note">组合版新增有限时长的待确认轨迹、带运动初值的光流及最近真实图像恢复；仍需两个高置信命中才确认，至少连续三帧真实检测或核验光流才导出。预测保持帧不参与转速。缺少转速时，画面会说明球边界不足、连续观测不足或拟合条件不足。</p><p>青色箭头为该相机独立模型，橙色为系统模型经相机坐标变换后的局部投影。与相邻真实观测明显矛盾、运动太小或几何不可靠时隐藏箭头；箭头长度适当放大，0.5 ms 前向投影不是新增观测。</p><p><a href="spin_review_bundle.zip">下载审核包</a> · <a href="REPORT.md">检查、修复与保留范围</a> · <a href="frame_rates.csv">逐帧独立与系统转速</a> · <a href="local_direction_checks.csv">逐点方向检查</a> · <a href="direction_audit.json">方向符号审计</a></p>'''
+    for row in sorted(videos,key=lambda r:(r['serve']!='serve05',r['serve'])):
         n=row['serve'];text+=f'<section><h2>{n}</h2><video controls preload="none" poster="posters/{n}.jpg" src="{row["video"]}"></video><p><button onclick="step(this,-1)">前一帧</button><button onclick="step(this,1)">后一帧</button>500 μs 源步长，25 FPS 慢放。</p><details><summary>两视角与系统转速曲线</summary><img loading="lazy" src="plots/{n}_rates.png"></details></section>'
     text+='''<p>当前转速与有向轴仍为候选，方向为相机局部坐标；尚无独立物理同步与球桌坐标标定。无观测显示 N/A，有近零证据才显示近零转速。</p><script>function step(b,d){let v=b.closest('p').previousElementSibling;v.pause();v.currentTime=Math.max(0,Math.min(v.duration,v.currentTime+d/25));}</script></html>'''
+    if (output/'serve05_diagnostics.json').exists():
+        text=text.replace('<h1>', '<p><a href="CONTINUITY.md">serve05 缺失原因和追踪改进</a> · <a href="serve05_diagnostics.json">serve05 前后统计</a> · <a href="continuity_timeline.csv">覆盖时间线</a></p><h1>',1)
     (output/'review.html').write_text(text)
 
 
@@ -259,12 +274,14 @@ def package(output):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--source',type=Path,default=Path('output/latest_observations'))
-    p.add_argument('--output',type=Path,default=Path('output/spin_direction_review_v15'));p.add_argument('--package-only',action='store_true')
+    p.add_argument('--output',type=Path,default=Path('output/spin_review_'+datetime.now().strftime('%Y%m%d_%H%M%S')));p.add_argument('--package-only',action='store_true')
     a=p.parse_args();root=Path(__file__).resolve().parents[1];output=a.output.resolve();output.mkdir(parents=True,exist_ok=True)
     if a.package_only:package(output);return
     variants=prepare(root,a.source.resolve(),output);direction_audit(output,variants)
     videos=render(root,output,variants);page(output,videos)
-    shutil.copy2(root/'docs/SPIN_DIRECTION_REVIEW.md',output/'REPORT.md');package(output)
+    shutil.copy2(root/'docs/SPIN_DIRECTION_REVIEW.md',output/'REPORT.md')
+    if (output/'serve05_diagnostics.json').exists():shutil.copy2(root/'docs/TRACK_CONTINUITY.md',output/'CONTINUITY.md')
+    package(output)
 
 
 if __name__=='__main__':main()

@@ -47,15 +47,34 @@ def absent(reason='no_current_observations'):
             'axis_camera':None,'direction_resolved':False,'direction':None,'reason':reason}
 
 
+def covering_fit(serve,timestamp_us,anchor,camera=None):
+    """Prefer the anchored fit, then the nearest valid overlapping fit.
+
+    The current timestamp must belong to the fitted input; this never holds a
+    result through a gap or extrapolates outside a window.
+    Rate and axis magnitude do not participate in selection.
+    """
+    windows=sorted((w for w in serve['windows'] if w['start_us']<=timestamp_us<w['end_us']),
+        key=lambda w:(w['window_id']!=anchor,abs((w['start_us']+w['end_us'])/2-timestamp_us),w['start_us']))
+    for w in windows:
+        fit=w['mono'][camera] if camera else w
+        if fit_at(fit,timestamp_us):return w,fit
+    return None,None
+
+
 def frame_spin(serve,timestamp_us,window_id=None):
-    """One time-selected window; current observations only, with no value hold."""
+    """Time-anchored overlapping fits; current observations, no value hold."""
     window_id=time_window_id(serve,timestamp_us) if window_id is None else window_id
     window=next((w for w in serve['windows'] if w['window_id']==window_id),None)
     result={'timestamp_us':int(timestamp_us),'window_id':window_id,'independent':{},'system':absent(),
             'system_camera_directions':{},'warnings':[]}
+    mono_fits={}
     for c in CAMERAS:
-        fit=window['mono'][c] if window else {}
-        result['independent'][c]=public_fit(fit,c) if fit_at(fit,timestamp_us) else absent()
+        selected,fit=covering_fit(serve,timestamp_us,window_id,c)
+        mono_fits[c]=fit
+        result['independent'][c]=({**public_fit(fit,c),'window_id':selected['window_id'],
+            'overlap_window_fallback':selected['window_id']!=window_id} if fit is not None else
+            {**absent(),'rejection_reasons':window['mono'][c].get('rejection_reasons',[]) if window else ['outside_windows']})
     if window is None:return result
     available=[c for c in CAMERAS if result['independent'][c]['available']]
     if len(available)==2:
@@ -67,16 +86,18 @@ def frame_spin(serve,timestamp_us,window_id=None):
             angle=float(np.degrees(np.arccos(np.clip(a@b,-1,1))))
             result['independent_axis_disagreement_degrees']=angle
             if angle>20:result['warnings'].append('independent_axis_disagreement')
-    if fit_at(window,timestamp_us):
+    joint_window,joint_fit=covering_fit(serve,timestamp_us,window_id)
+    if joint_fit is not None:
         # Joint RANSAC can resolve a bad independent consensus. Keep its own
         # estimate and expose any disagreement rather than averaging scalars.
-        result['system']={**public_fit(window,'F3E'),'source':'JOINT','selection':'shared_SO3_fit'}
+        result['system']={**public_fit(joint_fit,'F3E'),'source':'JOINT','selection':'shared_SO3_fit',
+            'window_id':joint_window['window_id'],'overlap_window_fallback':joint_window['window_id']!=window_id}
     elif result['warnings']:
         result['system']={**absent('conflicting_independent_estimates'),'source':None,'selection':'unknown'}
     elif available:
-        c=max(available,key=lambda c:(window['mono'][c].get('inlier_fraction',0),
-                                     window['mono'][c].get('unique_observations',0),
-                                     window['mono'][c].get('duration_us',0)))
+        c=max(available,key=lambda c:(mono_fits[c].get('inlier_fraction',0),
+                                     mono_fits[c].get('unique_observations',0),
+                                     mono_fits[c].get('duration_us',0)))
         result['system']={**result['independent'][c],'source':c,'selection':'explicit_single_camera_fallback'}
     else:result['system']={**absent(),'source':None,'selection':'unknown'}
     system=result['system']

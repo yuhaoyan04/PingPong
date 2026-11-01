@@ -48,6 +48,18 @@ def test_window_selection_depends_on_time_and_does_not_chase_valid_or_lower_rate
     assert time_window_id(s,1000)=='serve/500'
 
 
+def test_current_overlapping_valid_fit_is_not_lost_at_failed_window_boundary():
+    s=fixture_serve(40);other=copy.deepcopy(s['windows'][0]);other.update(window_id='serve/500',start_us=500,end_us=1500)
+    for f in [s['windows'][0],*s['windows'][0]['mono'].values()]:f['observation_timestamps_us']=[750]
+    for f in [other,*other['mono'].values()]:f.update(numerically_usable=False,observation_timestamps_us=[750])
+    s['windows'].append(other)
+    v=frame_spin(s,750,'serve/500')
+    assert v['system']['available'] and v['system']['rps']==40
+    assert v['system']['window_id']==s['windows'][0]['window_id']
+    assert v['system']['overlap_window_fallback']
+    assert not frame_spin(s,800,'serve/500')['system']['available']
+
+
 def test_view_axis_spin_has_local_circular_motion_even_when_front_proxy_is_zero():
     w=[0,0,100]
     right=marker_motion([.5,0,-np.sqrt(.75)],w,100)

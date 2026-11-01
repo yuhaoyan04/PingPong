@@ -30,6 +30,8 @@ class TrackerConfig:
     flow_min_points: int = 3
     minimum_consecutive_frames: int = 3
     consecutive_max_gap_us: int = 750
+    tentative_max_age_frames: int = 6
+    recovery_max_gap_us: int = 1500
 
     def __post_init__(self):
         if not 0 < self.continuation_confidence <= self.birth_confidence <= 1:
@@ -40,6 +42,8 @@ class TrackerConfig:
             raise ValueError('Invalid ball edge settings')
         if self.minimum_consecutive_frames<3 or self.consecutive_max_gap_us<=0:
             raise ValueError('Rotation output requires >=3 consecutive evidence-backed frames and a positive time-gap limit')
+        if self.tentative_max_age_frames<self.confirmation_hits or self.recovery_max_gap_us<0:
+            raise ValueError('Invalid tentative/recovery limits')
 
 
 @dataclass
@@ -116,6 +120,9 @@ class Track:
     confirmed: bool = False
     source: str = 'tentative'
     history: list = field(default_factory=list)
+    evidence_image: object = None
+    evidence_box: object = None
+    evidence_timestamp: object = None
 
     def box(self):
         return np.r_[self.mean[:2]-self.size/2,self.mean[:2]+self.size/2]
@@ -155,25 +162,30 @@ class MarkerTracker:
         self.events.append(dict(event='ended',**record))
         self.terminated.append(record)
 
-    def _flow(self,track,previous_box,image):
-        if self.previous_image is None:
+    def _flow_attempt(self,track,previous_box,image,reference_image,seeded=False):
+        if reference_image is None:
             return None
         mask=np.zeros(image.shape,np.uint8)
         x1,y1,x2,y2=bounds(previous_box,image.shape)
         if x2-x1<4 or y2-y1<4:
             return None
         mask[y1:y2,x1:x2]=255
-        previous=cv2.GaussianBlur(self.previous_image,(3,3),0.7)
+        previous=cv2.GaussianBlur(reference_image,(3,3),0.7)
         current=cv2.GaussianBlur(image,(3,3),0.7)
         p0=cv2.goodFeaturesToTrack(previous,mask=mask,maxCorners=30,qualityLevel=0.01,minDistance=2,blockSize=3)
         if p0 is None or len(p0)<self.config.flow_min_points:
             return None
         options=dict(winSize=(15,15),maxLevel=2,
                      criteria=(cv2.TERM_CRITERIA_EPS|cv2.TERM_CRITERIA_COUNT,20,0.01))
-        p1,s1,_=cv2.calcOpticalFlowPyrLK(previous,current,p0,None,**options)
+        initial=None
+        if seeded:
+            shift=track.mean[:2]-(previous_box[:2]+previous_box[2:])/2
+            initial=(p0+shift.astype(np.float32)).astype(np.float32)
+            options['flags']=cv2.OPTFLOW_USE_INITIAL_FLOW
+        p1,s1,_=cv2.calcOpticalFlowPyrLK(previous,current,p0,initial,**options)
         if p1 is None:
             return None
-        back,s2,_=cv2.calcOpticalFlowPyrLK(current,previous,p1,None,**options)
+        back,s2,_=cv2.calcOpticalFlowPyrLK(current,previous,p1,p0.copy() if seeded else None,**options)
         if back is None:
             return None
         good=(s1.ravel()>0)&(s2.ravel()>0)&np.isfinite(p1).all(axis=(1,2))
@@ -200,7 +212,18 @@ class MarkerTracker:
         center=(flow_box[:2]+flow_box[2:])/2
         if np.linalg.norm(center-track.mean[:2])>self.config.max_center_distance:
             return None
-        return dict(center=center,correlation=corr,points=len(offsets))
+        return dict(center=center,correlation=corr,points=len(offsets),method='seeded_lk' if seeded else 'lk')
+
+    def _flow(self,track,previous_box,image,timestamp_us):
+        result=self._flow_attempt(track,previous_box,image,self.previous_image)
+        if result is None:
+            result=self._flow_attempt(track,previous_box,image,self.previous_image,seeded=True)
+        if (result is None and track.evidence_timestamp is not None
+                and track.evidence_timestamp!=self.previous_timestamp
+                and 0<timestamp_us-track.evidence_timestamp<=self.config.recovery_max_gap_us):
+            result=self._flow_attempt(track,track.evidence_box,image,track.evidence_image,seeded=True)
+            if result is not None:result['method']='last_evidence_seeded_lk'
+        return result
 
     def _associate(self,tracks,detections,flow,low=False):
         if not tracks or not detections:
@@ -264,14 +287,24 @@ class MarkerTracker:
         for t in self.tracks:
             previous_box=t.box().copy()
             t.predict(dt)
-            f=self._flow(t,previous_box,image) if t.confirmed else None
+            f=self._flow(t,previous_box,image,timestamp_us)
             if f is not None:
                 flow[t.track_id]=f
         high=[d for d in accepted if d['score']>=self.config.birth_confidence]
         low=[d for d in accepted if d['score']<self.config.birth_confidence]
-        matches=self._associate(self.tracks,high,flow)
+        # A speculative tentative trajectory must not steal an established
+        # identity's detection. Its second high hit uses the detector motion
+        # gate, not a possibly ambiguous optical-flow proposal.
+        matches=self._associate([t for t in self.tracks if t.confirmed],high,flow)
+        used_high={d['index'] for t,d in matches}
+        matches+=self._associate([t for t in self.tracks if not t.confirmed],
+            [d for d in high if d['index'] not in used_high],{})
         matched_ids={t.track_id for t,d in matches}
-        matches+=self._associate([t for t in self.tracks if t.track_id not in matched_ids and t.confirmed],low,flow,low=True)
+        low_matches=self._associate([t for t in self.tracks if t.track_id not in matched_ids and t.confirmed],low,flow,low=True)
+        used_low={d['index'] for t,d in low_matches}
+        low_matches+=self._associate([t for t in self.tracks if t.track_id not in matched_ids and not t.confirmed],
+            [d for d in low if d['index'] not in used_low],{},low=True)
+        matches+=low_matches
         matched_ids={t.track_id for t,d in matches}
         used={d['index'] for t,d in matches}
         for t,d in matches:
@@ -291,7 +324,7 @@ class MarkerTracker:
         for t in self.tracks:
             if t.track_id not in matched_ids:
                 t.since_detection+=1
-                if t.confirmed and t.track_id in flow:
+                if t.track_id in flow:
                     t.correct(flow[t.track_id]['center'],noise=3.0)
                     t.missed=0; t.source='optical_flow'
                 else:
@@ -300,8 +333,8 @@ class MarkerTracker:
             reason=None
             if not valid:
                 reason='ball_edge_exit'
-            elif not t.confirmed and t.missed>0:
-                reason='tentative_not_confirmed'
+            elif not t.confirmed and t.age>self.config.tentative_max_age_frames:
+                reason='tentative_confirmation_timeout'
             elif t.missed>self.config.max_unobserved_frames:
                 reason='cluster_evidence_lost'
             elif t.since_detection>self.config.max_visual_only_frames:
@@ -323,6 +356,9 @@ class MarkerTracker:
             self.next_id+=1
             self.tracks.append(t)
             self.events.append(dict(event='created',track_id=t.track_id,timestamp_us=timestamp_us,confirmed=t.confirmed))
+        for t in self.tracks:
+            if t.source!='prediction_hold':
+                t.evidence_image=image.copy();t.evidence_box=t.box().copy();t.evidence_timestamp=timestamp_us
         output=[]
         for t in self.tracks:
             if not t.confirmed:
@@ -333,6 +369,7 @@ class MarkerTracker:
                                detection_confirmed_this_frame=t.source.startswith('detection'),
                                last_detection_confidence=t.last_detection_confidence,
                                frames_since_detection=t.since_detection,unobserved_frames=t.missed,
+                               flow_method=flow[t.track_id]['method'] if t.source=='optical_flow' else None,
                                detector_hits=t.hits,age_frames=t.age,trail=t.history[-12:]))
         self.previous_image=image.copy(); self.previous_timestamp=timestamp_us
         return dict(timestamp_us=timestamp_us,tracks=output,rejected_detections=rejected,

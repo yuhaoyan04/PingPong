@@ -16,5 +16,7 @@
   "flow_forward_backward_max": 1.0,
   "flow_min_points": 3,
   "minimum_consecutive_frames": 3,
-  "consecutive_max_gap_us": 750
+  "consecutive_max_gap_us": 750,
+  "tentative_max_age_frames": 6,
+  "recovery_max_gap_us": 1500
 }
